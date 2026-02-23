@@ -51,3 +51,8 @@ npm run qa:baseline
 ## Notes
 - Some variable fonts are heavy and can make progress look stuck during conversion.
 - License and usage compliance for collected fonts remains user/team responsibility.
+
+## License
+- This project is distributed under **PolyForm Noncommercial 1.0.0**. See `LICENSE`.
+- Required notices are listed in `NOTICE`.
+- Commercial usage requires a separate agreement. See `COMMERCIAL-LICENSE.md`.
