@@ -1,0 +1,113 @@
+/* GLOBAL FONT: MM205VAR (TTF) */
+
+@font-face {
+  font-family: 'MM205';
+  src: url('/fonts/MM205VAR-Thin.ttf?v=2') format('truetype');
+  font-weight: 100;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'MM205';
+  src: url('/fonts/MM205VAR-ThinItalic.ttf?v=2') format('truetype');
+  font-weight: 100;
+  font-style: italic;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'MM205';
+  src: url('/fonts/MM205VAR-Light.ttf?v=2') format('truetype');
+  font-weight: 300;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'MM205';
+  src: url('/fonts/MM205VAR-LightItalic.ttf?v=2') format('truetype');
+  font-weight: 300;
+  font-style: italic;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'MM205';
+  src: url('/fonts/MM205VAR-Regular.ttf?v=2') format('truetype');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'MM205';
+  src: url('/fonts/MM205VAR-Italic.ttf?v=2') format('truetype');
+  font-weight: 400;
+  font-style: italic;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'MM205';
+  src: url('/fonts/MM205VAR-Medium.ttf?v=2') format('truetype');
+  font-weight: 500;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'MM205';
+  src: url('/fonts/MM205VAR-MediumItalic.ttf?v=2') format('truetype');
+  font-weight: 500;
+  font-style: italic;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'MM205';
+  src: url('/fonts/MM205VAR-Bold.ttf?v=2') format('truetype');
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'MM205';
+  src: url('/fonts/MM205VAR-BoldItalic.ttf?v=2') format('truetype');
+  font-weight: 700;
+  font-style: italic;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'MM205';
+  src: url('/fonts/MM205VAR-Black.ttf?v=2') format('truetype');
+  font-weight: 900;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'MM205';
+  src: url('/fonts/MM205VAR-BlackItalic.ttf?v=2') format('truetype');
+  font-weight: 900;
+  font-style: italic;
+  font-display: swap;
+}
+
+:root {
+  /* Unified Font System */
+  --font-mm205: 'MM205', sans-serif;
+  
+  /* Map all system fonts to MM205 */
+  --font-sans: var(--font-mm205);
+  --font-mono: var(--font-mm205); /* Even mono is now MM205 per user request */
+  --font-inter: var(--font-mm205);
+  --font-brand: var(--font-mm205);
+  
+  /* Keep legacy variables pointing to the new font to complete the migration */
+  --font-catalogue: var(--font-mm205);
+  --font-replica: var(--font-mm205);
+  --font-geigy: var(--font-mm205);
+}

@@ -1,0 +1,12 @@
+{
+  "brand": {
+    "logo": "public/brand/Saka Studio Secondary Logo.svg"
+  },
+  "typography": {
+    "mono_regular": "public/fonts/AkkuratMonoLL-Regular.woff2",
+    "mono_italic": "public/fonts/AkkuratMonoLL-Italic.woff2",
+    "mono_bold": "public/fonts/AkkuratMonoLL-Bold.woff2",
+    "mono_bold_italic": "public/fonts/AkkuratMonoLL-BoldItalic.woff2"
+  },
+  "status": "ready"
+}

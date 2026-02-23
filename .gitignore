@@ -1,0 +1,28 @@
+.next/
+node_modules/
+downloads/
+out/
+*.log
+next-env.d.ts
+*.tsbuildinfo
+
+# Workspace temp artifacts (debug / local experiments)
+tmp/
+tmp-*/
+tmp_*/
+tmp-*
+.tmp-*/
+.tmp-*
+.temp-*/
+.temp-*
+
+# Python cache
+**/__pycache__/
+*.pyc
+
+# Generated reports and ad-hoc captures
+tasks/reports/*.json
+tasks/research/*.json
+tasks/tmp/*.html
+*.resp
+*.bin.zip

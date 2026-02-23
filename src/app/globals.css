@@ -1,0 +1,156 @@
+@import "tailwindcss";
+@config "../../tailwind.config.ts";
+@import "./fonts.css";
+
+:root {
+  /* Brutalist Sizing Logic - User Configurable */
+  --brutalist-line: 5px;
+  --brutalist-marker: 10px;
+  --brutalist-offset-x: 10vw;
+  --brutalist-offset-y: 10vh;
+  
+  /* Input Grid Dimensions */
+  --brutalist-input-width: 400px;
+  --brutalist-input-height: 100px;
+  --brutalist-footer-width: 400px; /* Controls horizontal spreading of brand footer text */
+  /* Color Pallete */
+  --canvas: #f5f5f5;
+  --paper: #f5f5f5;
+  --panel: #f5f5f5;
+  --ink: #0a0a0a;
+  --ink-soft: #1a1a1a;
+  --muted: #888888;
+  --line: #0a0a0a;
+  --line-soft: rgba(10, 10, 10, 0.2);
+  --line-strong: #0a0a0a;
+  --accent: #0a0a0a;
+
+  --grid-a: transparent;
+  --grid-b: transparent;
+}
+
+@media (max-width: 768px) {
+  :root {
+    /* Mobile Adjustments */
+    --brutalist-line: 3px;
+    --brutalist-marker: 8px;
+    --brutalist-offset-x: 1.5rem; /* Fixed padding for safety */
+    --brutalist-offset-y: 5vh;
+    
+    /* Fluid Input */
+    --brutalist-input-width: 70vw;
+    --brutalist-input-height: 80px;
+    --brutalist-footer-width: 70vw;
+  }
+}
+
+[data-theme="dark"] {
+  /* Bécane Paris Palette (Dark) */
+  --canvas: #0a0a0a;
+  --paper: #0a0a0a;
+  --panel: #0a0a0a;
+  --ink: #f5f5f5;
+  --ink-soft: #dedede;
+  --muted: #777777;
+  --line: #f5f5f5;
+  --line-soft: rgba(245, 245, 245, 0.2);
+  --line-strong: #f5f5f5;
+  --accent: #f5f5f5;
+
+  --grid-a: transparent;
+  --grid-b: transparent;
+}
+
+@layer base {
+  html {
+    scroll-behavior: smooth;
+  }
+
+  html,
+  body {
+    min-height: 100%;
+  }
+
+  body {
+    margin: 0;
+    background: var(--canvas);
+    color: var(--ink);
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+    text-rendering: geometricPrecision;
+    overflow-x: hidden;
+    overscroll-behavior: none;
+  }
+
+  body::before {
+    content: "";
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    opacity: 1;
+    z-index: -1;
+  }
+
+  ::selection {
+    background: var(--ink);
+    color: var(--paper);
+  }
+
+  button,
+  input,
+  textarea {
+    font: inherit;
+  }
+}
+
+@layer utilities {
+  .mono {
+    font-family: var(--font-mono);
+  }
+
+  .label {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.32em;
+  }
+
+  .label-tight {
+    font-family: var(--font-mono);
+    font-size: 9px;
+    text-transform: uppercase;
+    letter-spacing: 0.22em;
+  }
+
+  .tabular {
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* Custom Brutalist Scrollbar */
+  ::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  ::-webkit-scrollbar-thumb {
+    background: var(--line-soft);
+    border-radius: 0;
+  }
+
+  ::-webkit-scrollbar-thumb:hover {
+    background: var(--ink);
+  }
+
+  .no-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
+
+  .no-scrollbar {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+}
