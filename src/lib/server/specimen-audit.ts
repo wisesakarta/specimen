@@ -87,7 +87,7 @@ const toSafeFileName = (value: string): string => {
 };
 
 const decodeMojibakeLatin1Utf8 = (value: string): string => {
-  if (!/[ÃÂ][\x80-\xBF]/.test(value)) return value;
+  if (!/[\u00C2\u00C3][\x80-\xBF]/.test(value)) return value;
   try {
     return Buffer.from(value, "latin1").toString("utf8");
   } catch {
@@ -355,6 +355,11 @@ const collectCandidatePages = (request: BrowserRequest): string[] => {
     addMany(request.metadata.collectionUrls);
     addMany(request.metadata.collectionFamilyUrls);
 
+    addMany(request.metadata.specimenPdfUrls);
+    if (isRecord(request.metadata.targetProfile)) {
+      addMany(request.metadata.targetProfile.specimenPdfUrls);
+    }
+
     const fonts = Array.isArray(request.metadata.fonts) ? request.metadata.fonts : [];
     for (const font of fonts) {
       if (!isRecord(font) || !isRecord(font.metadata)) continue;
@@ -363,6 +368,10 @@ const collectCandidatePages = (request: BrowserRequest): string[] => {
       add(font.metadata.originalUrl);
       addMany(font.metadata.collectionUrls);
       addMany(font.metadata.collectionFamilyUrls);
+      addMany(font.metadata.specimenPdfUrls);
+      if (isRecord(font.metadata.targetProfile)) {
+        addMany(font.metadata.targetProfile.specimenPdfUrls);
+      }
     }
   }
 
@@ -371,6 +380,12 @@ const collectCandidatePages = (request: BrowserRequest): string[] => {
   }
 
   return Array.from(urls).slice(0, 24);
+};
+
+const isLikelySpecimenPdfUrl = (href: string): boolean => {
+  if (/\.pdf(?:$|\?)/i.test(href)) return true;
+  if (/\/pdfs\/[a-z0-9-]+(?:$|[/?#])/i.test(href)) return true;
+  return false;
 };
 
 const extractPdfUrlsFromHtml = (html: string, pageUrl: string): string[] => {
@@ -384,7 +399,7 @@ const extractPdfUrlsFromHtml = (html: string, pageUrl: string): string[] => {
         : decoded.startsWith("//")
           ? new URL(`https:${decoded}`)
           : new URL(decoded, pageUrl);
-      if (!/\.pdf(?:$|\?)/i.test(resolved.href)) return;
+      if (!isLikelySpecimenPdfUrl(resolved.href)) return;
       out.add(resolved.href);
     } catch {
       // ignore malformed candidates
@@ -397,7 +412,13 @@ const extractPdfUrlsFromHtml = (html: string, pageUrl: string): string[] => {
     /["'](\/[^"'<>]+?\.pdf(?:\?[^"'<>]*)?)["']/gi,
     /\\"(https?:\/\/[^\\"]+?\.pdf(?:\?[^\\"]*)?)\\"/gi,
     /\\"(\/\/[^\\"]+?\.pdf(?:\?[^\\"]*)?)\\"/gi,
-    /\\"(\/[^\\"]+?\.pdf(?:\?[^\\"]*)?)\\"/gi
+    /\\"(\/[^\\"]+?\.pdf(?:\?[^\\"]*)?)\\"/gi,
+    /https?:\/\/[^\s"'<>]+?\/pdfs\/[a-z0-9-]+(?:\?[^\s"'<>]*)?/gi,
+    /["'](\/\/[^"'<>]+?\/pdfs\/[a-z0-9-]+(?:\?[^"'<>]*)?)["']/gi,
+    /["'](\/[^"'<>]+?\/pdfs\/[a-z0-9-]+(?:\?[^"'<>]*)?)["']/gi,
+    /\"(https?:\/\/[^\"]+?\/pdfs\/[a-z0-9-]+(?:\?[^\"]*)?)\"/gi,
+    /\"(\/\/[^\"]+?\/pdfs\/[a-z0-9-]+(?:\?[^\"]*)?)\"/gi,
+    /\"(\/[^\"]+?\/pdfs\/[a-z0-9-]+(?:\?[^\"]*)?)\"/gi,
   ];
 
   for (const pattern of patterns) {
@@ -615,6 +636,41 @@ export const collectSpecimenPdfAudit = async (params: {
     }
   };
   const pageScans: Array<{ pageUrl: string; pdfCount: number; error?: string }> = [];
+
+  const metadataSeedCandidates = new Set<string>();
+  const addMetadataSeed = (value: unknown) => {
+    if (typeof value !== "string") return;
+    const trimmed = value.trim();
+    if (!trimmed) return;
+    try {
+      const parsed = new URL(trimmed);
+      if (parsed.protocol !== "http:" && parsed.protocol !== "https:") return;
+      if (isLikelySpecimenPdfUrl(parsed.href)) metadataSeedCandidates.add(parsed.href);
+    } catch {
+      // ignore invalid seed URL
+    }
+  };
+  const addMetadataSeedMany = (value: unknown) => {
+    if (!Array.isArray(value)) return;
+    for (const item of value) addMetadataSeed(item);
+  };
+
+  if (isRecord(request.metadata)) {
+    addMetadataSeedMany(request.metadata.specimenPdfUrls);
+    if (isRecord(request.metadata.targetProfile)) {
+      addMetadataSeedMany(request.metadata.targetProfile.specimenPdfUrls);
+    }
+    const fonts = Array.isArray(request.metadata.fonts) ? request.metadata.fonts : [];
+    for (const font of fonts) {
+      if (!isRecord(font) || !isRecord(font.metadata)) continue;
+      addMetadataSeedMany(font.metadata.specimenPdfUrls);
+      if (isRecord(font.metadata.targetProfile)) {
+        addMetadataSeedMany(font.metadata.targetProfile.specimenPdfUrls);
+      }
+    }
+  }
+
+  for (const url of metadataSeedCandidates) addPdfCandidate({ url });
 
   for (const pageUrl of pageUrls) {
     if (isOverBudget()) {

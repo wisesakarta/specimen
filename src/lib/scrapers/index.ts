@@ -17,6 +17,10 @@ import { GrotesklyScraper } from "./groteskly";
 import { DisplaayScraper } from "./displaay";
 import { BrandingWithTypeScraper } from "./brandingwithtype";
 import { TypejiScraper } from "./typeji";
+import { JulyTypeScraper } from "./julytype";
+import { GeneralTypeStudioScraper } from "./generaltypestudio";
+import { CommercialTypeScraper } from "./commercialtype";
+import { KHTypeScraper } from "./khtype";
 
 export const scrapers: Scraper[] = [
   LinetoScraper,
@@ -36,6 +40,10 @@ export const scrapers: Scraper[] = [
   DisplaayScraper,
   BrandingWithTypeScraper,
   TypejiScraper,
+  JulyTypeScraper,
+  GeneralTypeStudioScraper,
+  CommercialTypeScraper,
+  KHTypeScraper,
   GenericScraper // Always last as fallback
 ];
 
