@@ -1,6 +1,6 @@
 import path from "node:path";
 import crypto from "node:crypto";
-import { mkdir, readFile, unlink, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rename as renameFile, unlink, writeFile } from "node:fs/promises";
 import * as fs from "node:fs";
 
 import type {
@@ -768,6 +768,8 @@ const normalizeQualityStyleToken = (value: string): string => {
     .replace(/ultra[\s_-]?bold/g, "extrabold")
     .replace(/\bdemo\b/g, "")
     .replace(/\btrial\b/g, "")
+    .replace(/\blcg\b/g, "")
+    .replace(/\bweb\b/g, "")
     .replace(/[_-]+/g, " ")
     .replace(/\s+/g, " ")
     .trim()
@@ -1074,6 +1076,9 @@ const extractGenericStyleFromFileName = (fileName: string): string | undefined =
 const applyItalicSuffixFromValidation = (styleLabel: string, entry: Record<string, unknown>): string => {
   const style = styleLabel.trim();
   if (!style) return styleLabel;
+  if (/^(italic|oblique|regular[\s_-]?oblique)$/i.test(style)) {
+    return "Regular Italic";
+  }
   const isItalicLike =
     isTruthyFlag(entry.effective_italic) ||
     isTruthyFlag(entry.is_italic) ||
@@ -1472,6 +1477,24 @@ const runFoundryQualityAudit = async (params: {
 
 const stripLeadingNumericPrefix = (value: string): string => value.replace(/^\d{8,}-/, "");
 
+const resolveFileNameHint = (hint: unknown, fallbackExt: string): string | undefined => {
+  if (typeof hint !== "string") return undefined;
+  const raw = hint.trim();
+  if (!raw) return undefined;
+
+  const normalized = raw.replace(/[\\/]+/g, "/");
+  const base = path.basename(normalized);
+  if (!base) return undefined;
+
+  const hintedExt = path.extname(base).toLowerCase();
+  const ext = supportedFontExtensions.has(hintedExt) ? hintedExt : fallbackExt;
+  const stemRaw = path.basename(base, path.extname(base));
+  const stemClean = toSafeFileName(stripLeadingNumericPrefix(stemRaw) || stemRaw);
+  if (!stemClean) return undefined;
+
+  return `${stemClean}${ext}`;
+};
+
 const ensureUniqueFilePath = (dirPath: string, baseName: string): string => {
   const ext = path.extname(baseName);
   const stem = path.basename(baseName, ext);
@@ -1487,6 +1510,35 @@ const ensureUniqueFilePath = (dirPath: string, baseName: string): string => {
   return candidate;
 };
 
+const normalizeNonWebVariantBaseName = (baseName: string): string => {
+  const trimmed = baseName.trim();
+  if (!trimmed) return baseName;
+  const normalized = trimmed.replace(/(?:[-_\s]+)web$/i, "").trim();
+  return normalized || baseName;
+};
+
+const maybeRenameConvertedNonWebVariant = async (
+  variantPath: string | null | undefined
+): Promise<string | null | undefined> => {
+  if (!variantPath) return variantPath;
+  const ext = path.extname(variantPath).toLowerCase();
+  if (ext !== ".ttf" && ext !== ".otf") return variantPath;
+
+  const dirPath = path.dirname(variantPath);
+  const originalBaseName = path.basename(variantPath, ext);
+  const normalizedBaseName = normalizeNonWebVariantBaseName(originalBaseName);
+  if (normalizedBaseName === originalBaseName) return variantPath;
+
+  const targetPath = ensureUniqueFilePath(dirPath, `${normalizedBaseName}${ext}`);
+  if (path.resolve(targetPath) === path.resolve(variantPath)) return variantPath;
+
+  try {
+    await renameFile(variantPath, targetPath);
+    return targetPath;
+  } catch {
+    return variantPath;
+  }
+};
 const isSafeZipEntryPath = (entryName: string): boolean => {
   const normalized = entryName.replace(/\\/g, "/");
   if (!normalized) return false;
@@ -1497,14 +1549,38 @@ const isSafeZipEntryPath = (entryName: string): boolean => {
   return true;
 };
 
+const shouldExtractSpecimenPdfFromZipEntry = (entryPath: string): boolean => {
+  const token = entryPath.toLowerCase();
+  const legalDocMarkers = [
+    "eula",
+    "license",
+    "licence",
+    "terms",
+    "agreement",
+    "readme",
+    "copyright"
+  ];
+  return !legalDocMarkers.some((marker) => token.includes(marker));
+};
+
 const extractZipFonts = async (params: {
   zipPath: string;
   outputDir: string;
   sourceUrl: string;
   downloaded: DownloadedFile[];
   groupFolderHint?: string;
+  extractFonts?: boolean;
+  extractPdfs?: boolean;
 }): Promise<number> => {
-  const { zipPath, outputDir, sourceUrl, downloaded, groupFolderHint } = params;
+  const {
+    zipPath,
+    outputDir,
+    sourceUrl,
+    downloaded,
+    groupFolderHint,
+    extractFonts = true,
+    extractPdfs = false
+  } = params;
 
   const zipBase = path.basename(zipPath, path.extname(zipPath));
   const folderBase =
@@ -1514,8 +1590,15 @@ const extractZipFonts = async (params: {
     stripLeadingNumericPrefix(zipBase) ||
     zipBase ||
     "zip-fonts";
+
   const extractionDir = joinOpaquePath(outputDir, toSafeSegment(folderBase));
-  await mkdir(extractionDir, { recursive: true });
+  const specimenDir = joinOpaquePath(outputDir, "specimens");
+  if (extractFonts) {
+    await mkdir(extractionDir, { recursive: true });
+  }
+  if (extractPdfs) {
+    await mkdir(specimenDir, { recursive: true });
+  }
 
   const zip = new AdmZip(zipPath);
   const entries = zip.getEntries();
@@ -1530,11 +1613,25 @@ const extractZipFonts = async (params: {
 
     const entryExt = path.extname(normalized).toLowerCase();
     if (!entryExt) continue;
-    if (entryExt === ".zip") continue;
-    if (!supportedFontExtensions.has(entryExt)) continue;
 
     const baseName = path.basename(normalized);
     if (!baseName) continue;
+
+    if (entryExt === ".pdf") {
+      if (!extractPdfs) continue;
+      if (!shouldExtractSpecimenPdfFromZipEntry(normalized)) continue;
+      const uniqueTarget = ensureUniqueFilePath(specimenDir, baseName);
+      const resolvedTarget = path.resolve(uniqueTarget);
+      const resolvedRoot = path.resolve(specimenDir) + path.sep;
+      if (!resolvedTarget.startsWith(resolvedRoot)) continue;
+      await writeFile(uniqueTarget, entry.getData());
+      extractedCount += 1;
+      continue;
+    }
+
+    if (!extractFonts) continue;
+    if (entryExt === ".zip") continue;
+    if (!supportedFontExtensions.has(entryExt)) continue;
 
     const uniqueTarget = ensureUniqueFilePath(extractionDir, baseName);
     const resolvedTarget = path.resolve(uniqueTarget);
@@ -1881,20 +1978,25 @@ export const runDirectUrlDownload = async (request: DirectUrlRequest): Promise<D
   
   // Prefer CDN basename to preserve recognizable naming.
   const ext = detectExtension(fileUrl, request);
+  const hintedFileName = resolveFileNameHint(metadata.fileNameHint, ext);
   let fileName: string;
-  try {
-    const urlBasename = new URL(fileUrl).pathname.split('/').pop() || '';
-    if (urlBasename && urlBasename.includes('.')) {
-      fileName = urlBasename;
-    } else {
-      throw new Error('fallback');
+  if (hintedFileName) {
+    fileName = hintedFileName;
+  } else {
+    try {
+      const urlBasename = new URL(fileUrl).pathname.split('/').pop() || '';
+      if (urlBasename && urlBasename.includes('.')) {
+        fileName = urlBasename;
+      } else {
+        throw new Error('fallback');
+      }
+    } catch {
+      // Fallback to metadata-based naming.
+      const safeFamily = toSafeFileName(family);
+      const safeWeight = toSafeFileName(normalizeWeightLabel(weight));
+      const safeStyle = toSafeFileName(normalizeStyleLabel(style));
+      fileName = `${safeFamily}-${safeWeight}${safeStyle !== "normal" ? `-${safeStyle}` : ""}${ext}`;
     }
-  } catch {
-    // Fallback to metadata-based naming.
-    const safeFamily = toSafeFileName(family);
-    const safeWeight = toSafeFileName(normalizeWeightLabel(weight));
-    const safeStyle = toSafeFileName(normalizeStyleLabel(style));
-    fileName = `${safeFamily}-${safeWeight}${safeStyle !== "normal" ? `-${safeStyle}` : ""}${ext}`;
   }
   const filePath = path.join(outputDir, fileName);
 
@@ -1937,12 +2039,17 @@ export const runDirectUrlDownload = async (request: DirectUrlRequest): Promise<D
         (typeof request.family === "string" && request.family.trim()
           ? request.family
           : undefined);
+      const extractSpecimenOnlyZip = isTruthyFlag((metadata as any).extractSpecimenOnlyZip);
+      const extractSpecimenPdfFromZip =
+        extractSpecimenOnlyZip || isTruthyFlag((metadata as any).extractSpecimenPdfFromZip);
       const extractedCount = await extractZipFonts({
         zipPath: filePath,
         outputDir,
         sourceUrl: fileUrl,
         downloaded,
-        groupFolderHint: zipGroupHint
+        groupFolderHint: zipGroupHint,
+        extractFonts: !extractSpecimenOnlyZip,
+        extractPdfs: extractSpecimenPdfFromZip
       });
       if (extractedCount <= 0) {
         console.warn(`[DIRECT-ZIP] No extractable font files found in ${fileName}`);
@@ -1976,9 +2083,10 @@ export const runDirectUrlDownload = async (request: DirectUrlRequest): Promise<D
         );
         
         if (conversions.ttf) {
+            const normalizedTtfPath = (await maybeRenameConvertedNonWebVariant(conversions.ttf)) || conversions.ttf;
             downloaded.push({
-                fileName: path.basename(conversions.ttf),
-                filePath: toRelative(conversions.ttf),
+                fileName: path.basename(normalizedTtfPath),
+                filePath: toRelative(normalizedTtfPath),
                 sourceUrl: fileUrl,
                 name: composeDisplayName(
                   family,
@@ -1993,9 +2101,10 @@ export const runDirectUrlDownload = async (request: DirectUrlRequest): Promise<D
             });
         }
         if (conversions.otf) {
+             const normalizedOtfPath = (await maybeRenameConvertedNonWebVariant(conversions.otf)) || conversions.otf;
              downloaded.push({
-                fileName: path.basename(conversions.otf),
-                filePath: toRelative(conversions.otf),
+                fileName: path.basename(normalizedOtfPath),
+                filePath: toRelative(normalizedOtfPath),
                 sourceUrl: fileUrl,
                 name: composeDisplayName(
                   family,
@@ -2127,9 +2236,12 @@ export const runBatchDirectDownload = async (request: BatchDirectRequest): Promi
             ...metadataRecord,
             ...(formatHint ? { format: formatHint } : {})
           });
+      const metadataFileNameHint = resolveFileNameHint(metadataRecord.fileNameHint, ext);
       let fileName: string;
       if (inlineAsset?.fileNameHint) {
         fileName = inlineAsset.fileNameHint;
+      } else if (metadataFileNameHint) {
+        fileName = metadataFileNameHint;
       } else {
         try {
           const urlBasename = new URL(fileUrl).pathname.split('/').pop() || '';
@@ -2190,12 +2302,20 @@ export const runBatchDirectDownload = async (request: BatchDirectRequest): Promi
             (isRecord(font.metadata) && typeof font.metadata.family === "string" && font.metadata.family.trim()
               ? font.metadata.family
               : undefined);
+          const extractSpecimenOnlyZip = isTruthyFlag(
+            isRecord(font.metadata) ? (font.metadata as any).extractSpecimenOnlyZip : undefined
+          );
+          const extractSpecimenPdfFromZip =
+            extractSpecimenOnlyZip ||
+            isTruthyFlag(isRecord(font.metadata) ? (font.metadata as any).extractSpecimenPdfFromZip : undefined);
           const extractedCount = await extractZipFonts({
             zipPath: filePath,
             outputDir,
             sourceUrl: fileUrl,
             downloaded,
-            groupFolderHint: zipGroupHint
+            groupFolderHint: zipGroupHint,
+            extractFonts: !extractSpecimenOnlyZip,
+            extractPdfs: extractSpecimenPdfFromZip
           });
           if (extractedCount <= 0) {
             console.warn(`[BATCH-ZIP] No extractable font files found in ${fileName}`);
@@ -2235,13 +2355,14 @@ export const runBatchDirectDownload = async (request: BatchDirectRequest): Promi
             shouldDisableInstanceExplosion(font.metadata) ? { disableInstanceExplosion: true } : undefined
           );
           
-          const maybePushVariant = (variantPath: string | null | undefined, suffix: string) => {
-            if (!variantPath) return;
-            const variantFileName = path.basename(variantPath);
+          const maybePushVariant = async (variantPath: string | null | undefined, suffix: string) => {
+            const normalizedVariantPath = await maybeRenameConvertedNonWebVariant(variantPath);
+            if (!normalizedVariantPath) return;
+            const variantFileName = path.basename(normalizedVariantPath);
             if (downloaded.some((d) => d.fileName === variantFileName)) return;
             downloaded.push({
               fileName: variantFileName,
-              filePath: toRelative(variantPath),
+              filePath: toRelative(normalizedVariantPath),
               sourceUrl: fileUrl,
               name: composeDisplayName(
                 font.family,
@@ -2255,10 +2376,10 @@ export const runBatchDirectDownload = async (request: BatchDirectRequest): Promi
             });
           };
 
-          maybePushVariant(conversions.ttf, "TTF");
-          maybePushVariant(conversions.otf, "OTF");
-          maybePushVariant(conversions.woff, "WOFF");
-          maybePushVariant(conversions.woff2, "WOFF2");
+          await maybePushVariant(conversions.ttf, "TTF");
+          await maybePushVariant(conversions.otf, "OTF");
+          await maybePushVariant(conversions.woff, "WOFF");
+          await maybePushVariant(conversions.woff2, "WOFF2");
 
           const repairedWoff2ReplacedRaw =
             Boolean(conversionMetadata) &&

@@ -34,6 +34,18 @@ const toSafeFileToken = (value: string | undefined): string | undefined => {
   return normalized.length > 80 ? normalized.slice(0, 80) : normalized;
 };
 
+const dropDuplicatedFoundryPrefix = (
+  familyToken: string | undefined,
+  foundryToken: string | undefined
+): string | undefined => {
+  if (!familyToken || !foundryToken) return familyToken;
+  if (familyToken === foundryToken) return familyToken;
+  const prefix = `${foundryToken}-`;
+  if (!familyToken.startsWith(prefix)) return familyToken;
+  const stripped = familyToken.slice(prefix.length).replace(/^-+/, "");
+  return stripped || familyToken;
+};
+
 const inferFoundryFromUrl = (url: string | undefined): string | undefined => {
   if (!url) return undefined;
   try {
@@ -149,11 +161,12 @@ const buildZipBaseName = (payload: DownloadRequest, resultOutputDir: string): st
     Boolean(targetSlug) &&
     (collectionFamilyCount > 1 || linkedFamilies > 1 || /(?:^|-)family(?:-|$)|(?:^|-)collection(?:-|$)/i.test(targetSlug || ""));
 
-  const familyToken = toSafeFileToken(
+  const familyTokenRaw = toSafeFileToken(
     shouldPreferTargetSlug
       ? pickString(targetSlug, family, inferFamilyFromUrl(urlHint))
       : pickString(family, targetSlug, inferFamilyFromUrl(urlHint))
   );
+  const familyToken = dropDuplicatedFoundryPrefix(familyTokenRaw, foundryToken);
   const categoryToken = toSafeFileToken(category);
 
   if (foundryToken && familyToken) {
