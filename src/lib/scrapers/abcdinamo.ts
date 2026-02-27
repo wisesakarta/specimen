@@ -602,7 +602,7 @@ const buildDinamoProvocationScript = (familyName: string): string => {
 
       const clickBatch = async (selectors, label) => {
         const nodes = Array.from(document.querySelectorAll(selectors));
-        log("[SAKA] " + label + ": " + nodes.length + " elements found");
+        log("[SPECIMEN] " + label + ": " + nodes.length + " elements found");
         for (const node of nodes) {
           await pulseClick(node);
           const href = node.getAttribute && node.getAttribute("href");
@@ -613,13 +613,13 @@ const buildDinamoProvocationScript = (familyName: string): string => {
         }
       };
 
-      log("[SAKA] Provokasi Dinamo 7.0 started for: " + familyLabel);
+      log("[SPECIMEN] Provokasi Dinamo 7.0 started for: " + familyLabel);
 
       // Wait for page to fully load
       await sleep(2000);
 
       try {
-        log("[SAKA] Attempting Beta Lock bypass...");
+        log("[SPECIMEN] Attempting Beta Lock bypass...");
         const granted = new Set(["ginto", "ginto-rounded", "ginto-nord", "arizona", familyToken]);
         for (const hint of familyHints) granted.add(hint);
         localStorage.setItem("dinamo_granted_betas", JSON.stringify(Array.from(granted)));
@@ -628,7 +628,7 @@ const buildDinamoProvocationScript = (familyName: string): string => {
         // Try to find and trigger unlock slider
         const lock = document.querySelector(".unlock-slider__lock, [class*='unlock'], [class*='slider']");
         if (lock) {
-          log("[SAKA] Slider lock found, triggering drag...");
+          log("[SPECIMEN] Slider lock found, triggering drag...");
           lock.dispatchEvent(new MouseEvent("mousedown", { bubbles: true }));
           await sleep(300);
           window.dispatchEvent(new MouseEvent("mousemove", { clientX: 800, bubbles: true }));
@@ -636,7 +636,7 @@ const buildDinamoProvocationScript = (familyName: string): string => {
           lock.dispatchEvent(new MouseEvent("mouseup", { bubbles: true }));
         }
       } catch (e) {
-        log("[SAKA] Beta bypass info: " + (e && e.message ? e.message : e));
+        log("[SPECIMEN] Beta bypass info: " + (e && e.message ? e.message : e));
       }
 
       await sleep(1500);
@@ -669,7 +669,7 @@ const buildDinamoProvocationScript = (familyName: string): string => {
       ];
 
       for (let pass = 0; pass < 3; pass += 1) {
-        log("[SAKA] Pass " + (pass + 1) + "/3");
+        log("[SPECIMEN] Pass " + (pass + 1) + "/3");
 
         // Click all tab-related elements
         for (const selector of tabSelectors) {
@@ -685,7 +685,7 @@ const buildDinamoProvocationScript = (familyName: string): string => {
 
         // Navigate through hash links
         const hashLinks = Array.from(document.querySelectorAll('a[href^="#"], [data-href^="#"]'));
-        log("[SAKA] Found " + hashLinks.length + " hash links");
+        log("[SPECIMEN] Found " + hashLinks.length + " hash links");
         for (const link of hashLinks) {
           const href = link.getAttribute("href") || link.getAttribute("data-href");
           if (!href) continue;
@@ -708,7 +708,7 @@ const buildDinamoProvocationScript = (familyName: string): string => {
         
         for (const selector of interactiveSelectors) {
           const nodes = Array.from(document.querySelectorAll(selector));
-          log("[SAKA] Checking " + nodes.length + " " + selector + " elements");
+          log("[SPECIMEN] Checking " + nodes.length + " " + selector + " elements");
           
           for (const node of nodes) {
             const text = norm(node.textContent || "");
@@ -739,7 +739,7 @@ const buildDinamoProvocationScript = (familyName: string): string => {
         
         for (const selector of editableSelectors) {
           const fields = Array.from(document.querySelectorAll(selector));
-          log("[SAKA] Found " + fields.length + " editable fields with selector: " + selector);
+          log("[SPECIMEN] Found " + fields.length + " editable fields with selector: " + selector);
           
           for (const field of fields) {
             try {
@@ -760,7 +760,7 @@ const buildDinamoProvocationScript = (familyName: string): string => {
 
         // Trigger select dropdowns
         const selects = Array.from(document.querySelectorAll("select, [role='listbox']"));
-        log("[SAKA] Found " + selects.length + " select elements");
+        log("[SPECIMEN] Found " + selects.length + " select elements");
         for (const sel of selects) {
           try {
             for (let i = 0; i < sel.options?.length || 0; i += 1) {
@@ -778,7 +778,7 @@ const buildDinamoProvocationScript = (familyName: string): string => {
           return text.includes("show") || text.includes("more") || text.includes("expand") || 
                  text.includes("load") || text.includes("all") || text.includes("view");
         });
-        log("[SAKA] Found " + expandButtons.length + " expand buttons");
+        log("[SPECIMEN] Found " + expandButtons.length + " expand buttons");
         for (const button of expandButtons) {
           await pulseClick(button);
         }
@@ -795,7 +795,7 @@ const buildDinamoProvocationScript = (familyName: string): string => {
       // Final scroll and wait
       window.scrollTo(0, 0);
       await sleep(500);
-      log("[SAKA] Provokasi Dinamo completed successfully!");
+      log("[SPECIMEN] Provokasi Dinamo completed successfully!");
       window.__specimen_extraction_complete = true;
       window.__saka_extraction_complete = true;
     })();

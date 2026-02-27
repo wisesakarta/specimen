@@ -2,7 +2,7 @@
 
 **Professional Strategy Alignment**
 **Date:** 2026-02-10
-**Context:** Technical analysis of `saka-font-scrapper` architecture & extraction capabilities.
+**Context:** Technical analysis of `specimen` architecture & extraction capabilities.
 
 ---
 

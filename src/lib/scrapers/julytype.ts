@@ -184,7 +184,7 @@ const matchesTargetTokens = (asset: JulyTypeAsset, tokens: string[]): boolean =>
 
 const buildRscUrl = (targetUrl: string): string => {
   const parsed = new URL(targetUrl);
-  parsed.searchParams.set("_rsc", `saka${Date.now().toString(36)}`);
+  parsed.searchParams.set("_rsc", `specimen${Date.now().toString(36)}`);
   return parsed.href;
 };
 

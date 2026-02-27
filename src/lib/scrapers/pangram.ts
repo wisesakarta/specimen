@@ -253,7 +253,7 @@ const buildPangramInjectScript = (familyName: string): string => {
       window.scrollTo(0, 0);
       await sleep(700);
 
-      console.log("[SAKA] Provokasi Selesai");
+      console.log("[SPECIMEN] Provokasi Selesai");
       window.__specimen_extraction_complete = true;
       window.__saka_extraction_complete = true;
     })();

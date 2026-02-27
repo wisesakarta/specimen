@@ -1,6 +1,6 @@
 
 /**
- * SAKA ENGINE - PROVOCATION DICTIONARY
+ * SPECIMEN ENGINE - PROVOCATION DICTIONARY
  * Kumpulan string dan skrip untuk memancing ("provoke") browser agar mengunduh
  * subset font yang lebih lengkap dari server yang menggunakan dynamic subsetting.
  */
@@ -51,7 +51,7 @@ export function generateProvocationScript(strategyKey: keyof typeof PROVOCATION_
     return `
     (async () => {
         const PANGRAM = \`${safeText}\`;
-        console.log("[SAKA-PROVOKE] Strategy: ${strategyKey} | Mode: DOM-Pressure");
+        console.log("[SPECIMEN-PROVOKE] Strategy: ${strategyKey} | Mode: DOM-Pressure");
 
         function provoke(el) {
             try {

@@ -244,7 +244,7 @@ export const SuperiorTypeScraper: Scraper = {
       targetUrl,
       injectScript: `
         (async () => {
-            console.log("[SAKA-SUPERIOR] Specific Provocation Active");
+            console.log("[SPECIMEN-SUPERIOR] Specific Provocation Active");
             const sleep = (ms) => new Promise(r => setTimeout(r, ms));
             
             // 1. Scroll and reveal
@@ -268,7 +268,7 @@ export const SuperiorTypeScraper: Scraper = {
             });
             
             window.scrollTo(0, document.body.scrollHeight);
-            console.log("[SAKA-SUPERIOR] Provocation Done.");
+            console.log("[SPECIMEN-SUPERIOR] Provocation Done.");
         })();
       `
     };

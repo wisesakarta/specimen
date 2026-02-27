@@ -12,7 +12,7 @@ export const runLinetoProvocation = async (page: any): Promise<void> => {
   await page.evaluate(async () => {
     // Hidden Provocation Layer
     const div = document.createElement('div');
-    div.id = 'saka-provocateur';
+    div.id = 'specimen-provocateur';
     div.style.cssText = 'position:fixed;top:0;left:0;width:1px;height:1px;overflow:hidden;opacity:0.01;pointer-events:none;z-index:-1;';
     document.body.appendChild(div);
 
