@@ -1,4 +1,4 @@
-# Aksara
+# Specimen
 
 Internal utility for analyzing foundry pages and collecting font assets into structured ZIP packages.
 Developed by `Saka Studio & Engineering`.

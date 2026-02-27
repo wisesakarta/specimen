@@ -823,6 +823,7 @@ const buildFallbackInjectScript = (): string => `
       await sleep(90);
     }
     await sleep(1200);
+    window.__specimen_extraction_complete = true;
     window.__saka_extraction_complete = true;
   })();
 `;

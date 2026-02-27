@@ -883,6 +883,7 @@ const buildFallbackInjectScript = (): string => `
       await sleep(45);
     }
     await sleep(1200);
+    window.__specimen_typeji_probe_done = true;
     window.__saka_typeji_probe_done = true;
   })();
 `;

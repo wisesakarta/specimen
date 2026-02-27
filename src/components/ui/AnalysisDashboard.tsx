@@ -112,7 +112,7 @@ export default function AnalysisDashboard({
                 }}
             >
                 <div className="flex items-baseline justify-between select-none">
-                    <h2 className="text-xs font-mono font-bold text-[var(--muted)]">Foundry Name</h2>
+                    <h2 className="text-xs font-mono font-bold text-[var(--muted)]">Foundry</h2>
                     <div className="text-[10px] mono text-[var(--muted)]">{result.targetUrl || result.originalUrl}</div>
                 </div>
                 <h1 className="text-4xl md:text-5xl font-bold tracking-tight leading-none truncate">{result.foundryName}</h1>
@@ -126,9 +126,9 @@ export default function AnalysisDashboard({
                     x: parallaxLeftX 
                 }}
             >
-                <button onClick={onReset} className="flex-1 flex items-center justify-center font-bold text-lg hover:bg-[var(--ink)] hover:text-[var(--paper)] transition-colors tracking-wide" style={{ borderRightWidth: '1px', borderRightStyle: 'solid', borderColor: 'var(--line-strong)' }}>Reset</button>
+                <button onClick={onReset} className="flex-1 flex items-center justify-center font-bold text-lg hover:bg-[var(--ink)] hover:text-[var(--paper)] transition-colors tracking-wide" style={{ borderRightWidth: '1px', borderRightStyle: 'solid', borderColor: 'var(--line-strong)' }}>start over.</button>
                 <button onClick={onDownload} disabled={isDownloading} className={cn("flex-1 flex items-center justify-center font-bold text-lg text-[var(--paper)] bg-[var(--ink)] transition-colors tracking-wide relative overflow-hidden", isDownloading && "opacity-80 pointer-events-none")}>
-                    {isDownloading ? <span className="animate-pulse">Downloading {progress.current}/{progress.total}</span> : "Download"}
+                    {isDownloading ? <span className="animate-pulse">pulling {progress.current} of {progress.total}.</span> : "get it."}
                     {isDownloading && progress.total > 0 && <div className="absolute bottom-0 left-0 h-1 bg-[var(--accent)] transition-all duration-300" style={{ width: `${(progress.current / progress.total) * 100}%` }} />}
                 </button>
             </motion.div>
@@ -143,7 +143,7 @@ export default function AnalysisDashboard({
                         x: parallaxLeftX 
                     }}
                 >
-                    <h3 className="text-xs font-mono font-bold text-[var(--ink-soft)]">Font Families <span className="opacity-50 ml-2">[{result.fonts.length} assets]</span></h3>
+                    <h3 className="text-xs font-mono font-bold text-[var(--ink-soft)]">{result.fonts.length} assets identified.</h3>
                 </motion.div>
                 
                 <motion.div 
@@ -180,7 +180,7 @@ export default function AnalysisDashboard({
                     x: parallaxRightX // Reacts to right pull
                 }}
             >
-                <h3 className="font-mono text-sm font-bold">Terminal Log</h3>
+                <h3 className="font-mono text-sm font-bold">Log</h3>
                 <div className="flex gap-2">
                     <div className="w-3 h-3 rounded-full bg-[var(--line-soft)]" />
                     <div className="w-3 h-3 rounded-full bg-[var(--line-soft)]" />
@@ -194,7 +194,7 @@ export default function AnalysisDashboard({
                     x: parallaxRightX
                 }}
             >
-                {logs.length === 0 && <div className="opacity-30">Waiting for activity...</div>}
+                {logs.length === 0 && <div className="opacity-30">idle.</div>}
                 {logs.map((log, i) => (
                     <div key={i} className="mb-1 break-all whitespace-pre-wrap"><span className="opacity-50 mr-2">{String(i + 1).padStart(3, '0')}</span>{log}</div>
                 ))}
@@ -217,9 +217,9 @@ export default function AnalysisDashboard({
           className="flex flex-col font-brand font-bold text-[12px] md:text-[14px] text-[var(--ink)] tracking-normal antialiased leading-[1.1]"
           style={{ width: 'min(var(--brutalist-footer-width, 400px), 100%)' }}
         >
-          <div className="w-full text-left">Aksara</div>
+          <div className="w-full text-left">Specimen</div>
           <div className="w-full text-left text-[10px] md:text-[11px] uppercase tracking-[0.08em] opacity-80">
-            Developed by Saka Studio &amp; Engineering
+            Saka Studio &amp; Engineering
           </div>
         </div>
       </div>

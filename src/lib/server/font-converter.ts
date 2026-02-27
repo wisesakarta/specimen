@@ -224,7 +224,7 @@ export async function convertToMultipleFormats(
     return result;
   }
 
-  const originalBase = inputPath.replace(/\.(woff2|ttf|otf)$/i, '');
+  const originalBase = inputPath.replace(/\.(woff2?|ttf|otf)$/i, '');
   const preserveBaseName = options?.preserveBaseName === true;
   const baseName = preserveBaseName
     ? originalBase
@@ -261,3 +261,4 @@ export async function convertToOtfLegacy(inputPath: string): Promise<string | nu
   const res = await convertToMultipleFormats(inputPath);
   return res.otf ?? res.ttf;
 }
+

@@ -211,6 +211,8 @@ const buildA2ProvocationScript = (familyName: string): string => `
     window.scrollTo(0, document.body.scrollHeight);
     await sleep(500);
 
+    window.__specimen_extraction_complete = true;
+
     window.__saka_extraction_complete = true;
   })();
 `;

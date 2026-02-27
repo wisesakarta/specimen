@@ -63,6 +63,20 @@ const asString = (value: unknown): string | undefined => {
   const trimmed = value.trim();
   return trimmed ? trimmed : undefined;
 };
+const resolveBrowserExecutablePath = (): string | undefined => {
+  // Keep local browser usage opt-in to preserve stable background behavior.
+  const envCandidates = [
+    asString(process.env.SPECIMEN_BROWSER_PATH),
+    asString(process.env.AKSARA_BROWSER_PATH),
+    asString(process.env.PUPPETEER_EXECUTABLE_PATH)
+  ].filter((value): value is string => Boolean(value));
+
+  for (const candidate of envCandidates) {
+    if (fs.existsSync(candidate)) return candidate;
+  }
+
+  return undefined;
+};
 
 const ensureUniqueFilePath = (dirPath: string, baseName: string): string => {
   const ext = path.extname(baseName);
@@ -1791,7 +1805,7 @@ export const runBrowserIntercept = async (request: BrowserRequest): Promise<Down
 
   try {
     await logProgress(`Connecting to ${request.targetUrl}...`);
-    browser = await puppeteer.launch({
+    const baseLaunchOptions = {
       headless: true,
       args: [
         "--no-sandbox",
@@ -1800,7 +1814,43 @@ export const runBrowserIntercept = async (request: BrowserRequest): Promise<Down
         "--disable-gpu",
         "--window-size=1920,1080"
       ]
-    });
+    };
+
+    const preferredExecutablePath = resolveBrowserExecutablePath();
+    const launchCandidates: Array<{ label: string; executablePath?: string }> = [
+      { label: "puppeteer-managed Chrome" }
+    ];
+    if (preferredExecutablePath) {
+      launchCandidates.push({
+        label: `explicit executable (${preferredExecutablePath})`,
+        executablePath: preferredExecutablePath
+      });
+    }
+
+    let launchError: unknown;
+    for (let attempt = 0; attempt < launchCandidates.length; attempt += 1) {
+      const candidate = launchCandidates[attempt];
+      const launchOptions: Record<string, unknown> = { ...baseLaunchOptions };
+      if (candidate.executablePath) {
+        launchOptions.executablePath = candidate.executablePath;
+      }
+
+      try {
+        await logProgress(`[Launch] Trying ${candidate.label}...`);
+        browser = await puppeteer.launch(launchOptions as any);
+        await logProgress(`[Launch] Browser started via ${candidate.label}.`);
+        launchError = undefined;
+        break;
+      } catch (error) {
+        launchError = error;
+        const reason = error instanceof Error ? error.message : String(error);
+        await logProgress(`[Launch] ${candidate.label} failed (${reason}).`);
+      }
+    }
+
+    if (!browser) {
+      throw launchError instanceof Error ? launchError : new Error("Unable to launch browser.");
+    }
 
     page = await browser.newPage();
     await page.setUserAgent(BROWSER_UA);
@@ -2247,6 +2297,14 @@ export const runBrowserIntercept = async (request: BrowserRequest): Promise<Down
     return result;
   } catch (error) {
     const reason = error instanceof Error ? error.message : String(error);
+    const browserMissing = /could not find chrome|failed to launch the browser process|browser was not found/i.test(
+      reason
+    );
+    if (browserMissing) {
+      throw new Error(
+        `browser-intercept failed: ${reason}\nHint: install browser cache via "npx puppeteer browsers install chrome" or set SPECIMEN_BROWSER_PATH (or AKSARA_BROWSER_PATH) to a local Chrome/Edge/Brave executable.`
+      );
+    }
     throw new Error(`browser-intercept failed: ${reason}`);
   } finally {
     if (interceptor && page) {

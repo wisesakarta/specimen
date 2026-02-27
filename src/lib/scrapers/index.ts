@@ -21,6 +21,9 @@ import { JulyTypeScraper } from "./julytype";
 import { GeneralTypeStudioScraper } from "./generaltypestudio";
 import { CommercialTypeScraper } from "./commercialtype";
 import { KHTypeScraper } from "./khtype";
+import { SharpTypeScraper } from "./sharptype";
+import { TypeDepartmentScraper } from "./type-department";
+import { NarrowTypeScraper } from "./narrowtype";
 
 export const scrapers: Scraper[] = [
   LinetoScraper,
@@ -44,6 +47,9 @@ export const scrapers: Scraper[] = [
   GeneralTypeStudioScraper,
   CommercialTypeScraper,
   KHTypeScraper,
+  SharpTypeScraper,
+  TypeDepartmentScraper,
+  NarrowTypeScraper,
   GenericScraper // Always last as fallback
 ];
 

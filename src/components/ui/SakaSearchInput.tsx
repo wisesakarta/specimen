@@ -17,7 +17,7 @@ export default function SakaSearchInput({
 }: SakaSearchInputProps) {
   /* Smirk Factor: Cheeky Placeholders */
   const [isFocused, setIsFocused] = useState(false);
-  const PLACEHOLDER = "wanna steal a font?";
+  const PLACEHOLDER = "drop the URL. we know why you're here.";
 
   /* Animation Variants */
   const containerVariants: Variants = {
@@ -162,10 +162,10 @@ export default function SakaSearchInput({
           style={{ width: "min(var(--brutalist-footer-width, 400px), 100%)" }}
         >
           <div className="w-full text-left">
-            Aksara
+            Specimen
           </div>
           <div className="w-full text-left text-[10px] md:text-[11px] uppercase tracking-[0.08em] opacity-80">
-            Developed by Saka Studio &amp; Engineering
+            Saka Studio &amp; Engineering
           </div>
         </div>
       </motion.div>

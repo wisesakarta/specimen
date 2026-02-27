@@ -1,0 +1,39 @@
+{
+  "project": "Saka Font Scrapper",
+  "branchName": "main",
+  "userStories": [
+    {
+      "id": "US-001",
+      "title": "Verify Resist Mono Extraction",
+      "acceptanceCriteria": [
+        "Run debug-groteskly.ts against Resist Mono",
+        "Verify 14 styles are extracted",
+        "Verify filenames are 'Resist-Mono-{Style}.otf'",
+        "Verify metadata matches user spec (Weights: Thin-Bold, Italics: Yes)"
+      ],
+      "priority": 1,
+      "passes": true
+    },
+    {
+      "id": "US-002",
+      "title": "Automated Smoke Test",
+      "acceptanceCriteria": [
+        "Run tasks/smoke-browser-intercept.ts",
+        "Ensure no regression in basic browser interception",
+        "Ensure exit code 0"
+      ],
+      "priority": 2,
+      "passes": true
+    },
+    {
+      "id": "US-003",
+      "title": "Validation Report Generation",
+      "acceptanceCriteria": [
+        "Generate a summary report of the verification",
+        "Save to reports/verification-resist-mono.md"
+      ],
+      "priority": 3,
+      "passes": true
+    }
+  ]
+}

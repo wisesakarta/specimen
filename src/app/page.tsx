@@ -38,7 +38,7 @@ export default function HomePage() {
   const [theme, setTheme] = useState<"light" | "dark">("light");
 
   useEffect(() => {
-    const saved = window.localStorage.getItem("aksara-theme") ?? window.localStorage.getItem("saka-theme");
+    const saved = window.localStorage.getItem("specimen-theme") ?? window.localStorage.getItem("aksara-theme") ?? window.localStorage.getItem("saka-theme");
     const resolved = saved === "dark" || saved === "light" ? (saved as "light" | "dark") : "light";
     setTheme(resolved);
   }, []);
@@ -90,12 +90,14 @@ export default function HomePage() {
 
   const handleAnalyze = async () => {
     if (!targetUrl.trim()) {
-      setNotice({ type: "error", message: "Target missing. Input URL." });
+      setNotice({ type: "error", message: "drop something first." });
       return;
     }
+    // Prevent stale result reuse when a new analyze attempt starts.
+    setScrapeResult(null);
     setIsAnalyzing(true);
     // Heist Theme: Randomize the "Loading" message
-    const heistMsgs = ["Scanning perimeter...", "Bypassing firewall...", "Cracking vault...", "Bribing guards..."];
+    const heistMsgs = ["reading.", "finding the gaps.", "there it is.", "almost."];
     const randomMsg = heistMsgs[Math.floor(Math.random() * heistMsgs.length)];
     
     setNotice({ type: "analyzing", message: randomMsg });
@@ -108,9 +110,11 @@ export default function HomePage() {
       const data = await res.json();
       if (data.error) throw new Error(data.error);
       setScrapeResult(data);
-      appendLog(`[INTEL] ${data.foundryName} identified. ${data.fonts?.length} potential assets.`);
+      appendLog(`→ ${data.foundryName}. ${data.fonts?.length || 0} assets on the table.`);
     } catch (error: any) {
-      setNotice({ type: "error", message: "Security too tight. " + error.message });
+      // Keep state consistent: failed analyze must not leave old scrapeResult active.
+      setScrapeResult(null);
+      setNotice({ type: "error", message: `couldn't get in. ${error.message}` });
     } finally {
       setIsAnalyzing(false);
     }
@@ -131,14 +135,22 @@ export default function HomePage() {
         typeof font?.url === "string" &&
         (/^https?:\/\//i.test(font.url) || /^inline-font:\/\//i.test(font.url))
     );
-    const shouldBatchDirect = !hasPlaceholder && directFonts.length > 0;
+    const targetHost = (() => {
+      try {
+        return new URL(scrapeResult.targetUrl || scrapeResult.originalUrl || "").hostname.toLowerCase();
+      } catch {
+        return "";
+      }
+    })();
+    const shouldPreferDirect = /(^|\.)abcdinamo\.com$/.test(targetHost);
+    const shouldBatchDirect = directFonts.length > 0 && (!hasPlaceholder || shouldPreferDirect);
     setIsDownloading(true);
     setDownloadProgress({ current: 0, total: scrapeResult.fonts.length });
-    appendLog("[RUN] Job started");
+    appendLog("→ running.");
 
     try {
       if (shouldBatchDirect) {
-        appendLog(`[RUN] Mode: batch-direct (${directFonts.length} assets)`);
+        appendLog(`→ ${directFonts.length} assets. batch mode.`);
         const res = await fetch("/api/font-download", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -172,15 +184,16 @@ export default function HomePage() {
 
         const cd = res.headers.get("content-disposition") || "";
         const match = cd.match(/filename=\"?([^\";]+)\"?/i);
-        link.download = match?.[1] || "aksara-fonts.zip";
+        link.download = match?.[1] || `specimen-${String(scrapeResult?.foundryName || "fonts").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "") || "fonts"}-fonts.zip`;
         link.click();
         URL.revokeObjectURL(url);
 
         setDownloadProgress({ current: scrapeResult.fonts.length, total: scrapeResult.fonts.length });
-        appendLog("[RUN] Complete");
+        appendLog("→ done.");
         return;
       }
 
+      appendLog("→ intercept mode.");
       const res = await fetch("/api/font-download", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -221,12 +234,12 @@ export default function HomePage() {
             if (event.type === "log") appendLog(event.message);
             if (event.type === "progress") setDownloadProgress({ current: event.current, total: event.total });
             if (event.type === "result") {
-              appendLog("[RUN] Complete");
+              appendLog("→ done.");
               setIsDownloading(false);
               if (event.zipBase64) {
                 const link = document.createElement("a");
                 link.href = `data:application/zip;base64,${event.zipBase64}`;
-                link.download = event.zipFile || "aksara-fonts.zip";
+                link.download = event.zipFile || `specimen-${String(scrapeResult?.foundryName || "fonts").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "") || "fonts"}-fonts.zip`;
                 link.click();
               }
               return;
@@ -235,7 +248,7 @@ export default function HomePage() {
         }
       }
     } catch (e: any) {
-      appendLog(`[ERROR] ${e.message}`);
+      appendLog(`✕ ${e.message}`);
     } finally {
       setIsDownloading(false);
     }

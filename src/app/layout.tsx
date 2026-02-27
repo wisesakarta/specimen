@@ -5,9 +5,9 @@ import { GridProvider } from "@/context/GridContext";
 import type { Metadata } from "next";
 
 export const metadata: Metadata = {
-  title: "Aksara",
-  applicationName: "Aksara",
-  description: "Aksara by Saka Studio & Engineering"
+  title: "Specimen",
+  applicationName: "Specimen",
+  description: "Specimen by Saka Studio & Engineering"
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

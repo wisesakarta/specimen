@@ -349,6 +349,8 @@ const build205ProvocationScript = (familyName: string): string => `
       await sleep(600);
     }
 
+    window.__specimen_extraction_complete = true;
+
     window.__saka_extraction_complete = true;
   })();
 `;

@@ -182,41 +182,41 @@ const buildZipBaseName = (payload: DownloadRequest, resultOutputDir: string): st
 
 const validatePayload = (value: unknown): DownloadRequest => {
   if (!isRecord(value)) {
-    throw new Error("Body request harus berupa object JSON.");
+    throw new Error("Request body must be a JSON object.");
   }
 
   const mode = value.mode;
   if (mode !== "css-url" && mode !== "api-json" && mode !== "direct-url" && mode !== "browser-intercept" && mode !== "batch-direct") {
-    throw new Error("Field `mode` invalid.");
+    throw new Error("Invalid `mode` field.");
   }
 
   if (mode === "css-url") {
     if (typeof value.cssUrl !== "string" || !value.cssUrl.trim()) {
-      throw new Error("Mode `css-url` membutuhkan `cssUrl`.");
+      throw new Error("`css-url` mode requires `cssUrl`.");
     }
   }
 
   if (mode === "api-json") {
     if (typeof value.apiUrl !== "string" || !value.apiUrl.trim()) {
-      throw new Error("Mode `api-json` membutuhkan `apiUrl`.");
+      throw new Error("`api-json` mode requires `apiUrl`.");
     }
   }
 
   if (mode === "direct-url") {
     if (typeof value.fileUrl !== "string" || !value.fileUrl.trim()) {
-      throw new Error("Mode `direct-url` membutuhkan `fileUrl`.");
+      throw new Error("`direct-url` mode requires `fileUrl`.");
     }
   }
 
   if (mode === "batch-direct") {
     if (!Array.isArray(value.fonts) || value.fonts.length === 0) {
-      throw new Error("Mode `batch-direct` membutuhkan array `fonts` yang tidak kosong.");
+      throw new Error("`batch-direct` mode requires a non-empty `fonts` array.");
     }
   }
 
   if (mode === "browser-intercept") {
     if (typeof value.targetUrl !== "string" || !value.targetUrl.trim()) {
-      throw new Error("Mode `browser-intercept` membutuhkan `targetUrl`.");
+      throw new Error("`browser-intercept` mode requires `targetUrl`.");
     }
     // expectedCount should only come from explicit hints, never placeholder font arrays.
     if (typeof value.expectedCount !== "number" && value.metadata && typeof value.metadata === "object" && !Array.isArray(value.metadata)) {

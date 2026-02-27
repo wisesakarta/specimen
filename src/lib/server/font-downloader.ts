@@ -700,8 +700,10 @@ type FoundryQualityProfile = {
   source?: string;
   styleScope: "style" | "family-style";
   strictMissingStyles: boolean;
+  failOnTrialAssets: boolean;
   expectedStyles: string[];
   optionalExcludedStyles: string[];
+  sourceLimitedStyles: string[];
   requiredFeatureTags: string[];
   minCmapEntries: number;
   minFeatureCount: number;
@@ -718,9 +720,10 @@ type FoundryStyleMetrics = {
 const defaultFoundryQualityProfile: FoundryQualityProfile = {
   styleScope: "style",
   strictMissingStyles: false,
+  failOnTrialAssets: false,
   expectedStyles: [],
   optionalExcludedStyles: [],
-  requiredFeatureTags: [],
+  sourceLimitedStyles: [],  requiredFeatureTags: [],
   minCmapEntries: 0,
   minFeatureCount: 0
 };
@@ -836,6 +839,7 @@ const extractQualityProfileFromTargetProfile = (targetProfile: Record<string, un
     normalizeStringList(targetProfile.expectedStyles) ||
     extractExpectedStylesFromStyleMap(targetProfile.styleMap);
   const optionalExcludedStyles = normalizeStringList(targetProfile.optionalExcludedStyles);
+  const sourceLimitedStyles = normalizeStringList(targetProfile.sourceLimitedStyles);
   const requiredFeatureTags = normalizeStringList(targetProfile.requiredFeatureTags);
   const minCmapEntries = Number(targetProfile.minCmapEntries);
   const minFeatureCount = Number(targetProfile.minFeatureCount);
@@ -848,11 +852,17 @@ const extractQualityProfileFromTargetProfile = (targetProfile: Record<string, un
   if (typeof targetProfile.strictMissingStyles === "boolean") {
     out.strictMissingStyles = targetProfile.strictMissingStyles;
   }
+  if (typeof targetProfile.failOnTrialAssets === "boolean") {
+    out.failOnTrialAssets = targetProfile.failOnTrialAssets;
+  }
   if (expectedStyles && expectedStyles.length > 0) {
     out.expectedStyles = dedupeStyleLabels(expectedStyles);
   }
   if (optionalExcludedStyles && optionalExcludedStyles.length > 0) {
     out.optionalExcludedStyles = dedupeStyleLabels(optionalExcludedStyles);
+  }
+  if (sourceLimitedStyles && sourceLimitedStyles.length > 0) {
+    out.sourceLimitedStyles = dedupeStyleLabels(sourceLimitedStyles);
   }
   if (requiredFeatureTags && requiredFeatureTags.length > 0) {
     out.requiredFeatureTags = requiredFeatureTags.map((tag) => tag.toLowerCase());
@@ -900,8 +910,10 @@ const mergeFoundryQualityProfile = (...partials: Partial<FoundryQualityProfile>[
     ...defaultFoundryQualityProfile,
     styleScope: defaultFoundryQualityProfile.styleScope,
     strictMissingStyles: defaultFoundryQualityProfile.strictMissingStyles,
+    failOnTrialAssets: defaultFoundryQualityProfile.failOnTrialAssets,
     expectedStyles: [...defaultFoundryQualityProfile.expectedStyles],
     optionalExcludedStyles: [...defaultFoundryQualityProfile.optionalExcludedStyles],
+    sourceLimitedStyles: [...defaultFoundryQualityProfile.sourceLimitedStyles],
     requiredFeatureTags: [...defaultFoundryQualityProfile.requiredFeatureTags]
   };
 
@@ -913,11 +925,17 @@ const mergeFoundryQualityProfile = (...partials: Partial<FoundryQualityProfile>[
     if (typeof part.strictMissingStyles === "boolean") {
       merged.strictMissingStyles = part.strictMissingStyles;
     }
+    if (typeof part.failOnTrialAssets === "boolean") {
+      merged.failOnTrialAssets = part.failOnTrialAssets;
+    }
     if (Array.isArray(part.expectedStyles) && part.expectedStyles.length > 0) {
       merged.expectedStyles = dedupeStyleLabels(part.expectedStyles.map((style) => String(style)));
     }
     if (Array.isArray(part.optionalExcludedStyles) && part.optionalExcludedStyles.length > 0) {
       merged.optionalExcludedStyles = dedupeStyleLabels(part.optionalExcludedStyles.map((style) => String(style)));
+    }
+    if (Array.isArray(part.sourceLimitedStyles) && part.sourceLimitedStyles.length > 0) {
+      merged.sourceLimitedStyles = dedupeStyleLabels(part.sourceLimitedStyles.map((style) => String(style)));
     }
     if (Array.isArray(part.requiredFeatureTags) && part.requiredFeatureTags.length > 0) {
       merged.requiredFeatureTags = part.requiredFeatureTags.map((tag) => String(tag).toLowerCase());
@@ -1356,20 +1374,49 @@ const runFoundryQualityAudit = async (params: {
   const observedStyleSet = new Set<string>([...downloadedStyleSet, ...styleMetrics.keys()]);
 
   const expectedTokens = Array.from(expectedStyleMap.keys());
-  const missingStyleTokens = expectedTokens.filter((token) => !observedStyleSet.has(token));
+
+  const resolveObservedTokenForExpected = (expectedToken: string): string | undefined => {
+    if (observedStyleSet.has(expectedToken)) return expectedToken;
+    if (profile.styleScope !== "family-style") return undefined;
+
+    for (const observedToken of observedStyleSet) {
+      if (
+        observedToken.startsWith(expectedToken) ||
+        observedToken.includes(expectedToken) ||
+        expectedToken.startsWith(observedToken)
+      ) {
+        return observedToken;
+      }
+    }
+
+    return undefined;
+  };
+
+  const matchedExpectedToObserved = new Map<string, string>();
+  for (const expectedToken of expectedTokens) {
+    const matched = resolveObservedTokenForExpected(expectedToken);
+    if (matched) matchedExpectedToObserved.set(expectedToken, matched);
+  }
+
+  const missingStyleTokens = expectedTokens.filter((token) => !matchedExpectedToObserved.has(token));
   const stylesBelowCmapTokens = expectedTokens.filter((token) => {
-    const metric = styleMetrics.get(token);
+    const resolvedToken = matchedExpectedToObserved.get(token) || token;
+    const metric = styleMetrics.get(resolvedToken);
     if (!metric) return false;
     return metric.cmapEntries < profile.minCmapEntries;
   });
   const stylesBelowFeatureCountTokens = expectedTokens.filter((token) => {
-    const metric = styleMetrics.get(token);
+    const resolvedToken = matchedExpectedToObserved.get(token) || token;
+    const metric = styleMetrics.get(resolvedToken);
     if (!metric) return false;
     return metric.featureCount < profile.minFeatureCount;
   });
 
   const globalFeatureTags = new Set<string>();
-  const featureSourceTokens = expectedTokens.length > 0 ? expectedTokens : Array.from(styleMetrics.keys());
+  const featureSourceTokens =
+    expectedTokens.length > 0
+      ? dedupeStyleLabels(expectedTokens.map((token) => matchedExpectedToObserved.get(token) || token))
+      : Array.from(styleMetrics.keys());
   for (const token of featureSourceTokens) {
     const metric = styleMetrics.get(token);
     if (!metric) continue;
@@ -1382,6 +1429,14 @@ const runFoundryQualityAudit = async (params: {
   const invalidFonts = Number(validationSummary.invalid_fonts) || 0;
   const italicMismatches = Number(validationSummary.italic_mismatches) || 0;
   const validationStatus = typeof validationSummary.status === "string" ? validationSummary.status : "unknown";
+
+  const trialSourceRe = /\btrial\b/i;
+  const trialAssetEntries = downloaded.filter((item) => {
+    const source = typeof item.sourceUrl === "string" ? item.sourceUrl : "";
+    const fileName = typeof item.fileName === "string" ? item.fileName : "";
+    const name = typeof item.name === "string" ? item.name : "";
+    return trialSourceRe.test(source) || trialSourceRe.test(fileName) || trialSourceRe.test(name);
+  });
 
   const failReasons: string[] = [];
   const warnReasons: string[] = [];
@@ -1396,6 +1451,9 @@ const runFoundryQualityAudit = async (params: {
   if (stylesBelowCmapTokens.length > 0) failReasons.push(`styles below cmap threshold (${profile.minCmapEntries})`);
   if (invalidFonts > 0) failReasons.push(`invalid fonts detected: ${invalidFonts}`);
   if (italicMismatches > 0) failReasons.push(`italic mismatches detected: ${italicMismatches}`);
+  if (profile.failOnTrialAssets && trialAssetEntries.length > 0) {
+    failReasons.push(`trial assets detected: ${trialAssetEntries.length}`);
+  }
 
   if (stylesBelowFeatureCountTokens.length > 0) warnReasons.push(`styles below feature threshold (${profile.minFeatureCount})`);
   if (missingRequiredFeatureTags.length > 0) warnReasons.push(`required feature tags missing: ${missingRequiredFeatureTags.join(", ")}`);
@@ -1446,6 +1504,11 @@ const runFoundryQualityAudit = async (params: {
       invalidFonts,
       italicMismatches
     },
+    trialSnapshot: {
+      failOnTrialAssets: profile.failOnTrialAssets,
+      trialAssetCount: trialAssetEntries.length,
+      trialAssetFiles: trialAssetEntries.map((item) => item.fileName).slice(0, 50)
+    },
     featureSnapshot: {
       requiredFeatureTags: profile.requiredFeatureTags,
       missingRequiredFeatureTags,
@@ -1461,7 +1524,7 @@ const runFoundryQualityAudit = async (params: {
       printReadiness
     },
     styleMetrics: Object.fromEntries(
-      Array.from(expectedStyleMap.entries()).map(([token, label]) => [label, styleMetrics.get(token) || null])
+      Array.from(expectedStyleMap.entries()).map(([token, label]) => [label, styleMetrics.get(matchedExpectedToObserved.get(token) || token) || null])
     )
   };
 
@@ -1571,6 +1634,7 @@ const extractZipFonts = async (params: {
   groupFolderHint?: string;
   extractFonts?: boolean;
   extractPdfs?: boolean;
+  extractToRoot?: boolean;
 }): Promise<number> => {
   const {
     zipPath,
@@ -1579,7 +1643,8 @@ const extractZipFonts = async (params: {
     downloaded,
     groupFolderHint,
     extractFonts = true,
-    extractPdfs = false
+    extractPdfs = false,
+    extractToRoot = false
   } = params;
 
   const zipBase = path.basename(zipPath, path.extname(zipPath));
@@ -1591,7 +1656,7 @@ const extractZipFonts = async (params: {
     zipBase ||
     "zip-fonts";
 
-  const extractionDir = joinOpaquePath(outputDir, toSafeSegment(folderBase));
+  const extractionDir = extractToRoot ? outputDir : joinOpaquePath(outputDir, toSafeSegment(folderBase));
   const specimenDir = joinOpaquePath(outputDir, "specimens");
   if (extractFonts) {
     await mkdir(extractionDir, { recursive: true });
@@ -1661,14 +1726,14 @@ const validateUrl = (urlString: string, fieldName: string): string => {
   try {
     return new URL(urlString).href;
   } catch {
-    throw new Error(`Field \`${fieldName}\` harus berupa URL valid.`);
+    throw new Error(`Field \`${fieldName}\` must be a valid URL.`);
   }
 };
 
 const validateUrlWithBase = (urlString: string, fieldName: string, baseUrl?: string): string => {
   const candidate = urlString.trim();
   if (!candidate) {
-    throw new Error(`Field \`${fieldName}\` harus berupa URL valid.`);
+    throw new Error(`Field \`${fieldName}\` must be a valid URL.`);
   }
 
   try {
@@ -1678,7 +1743,7 @@ const validateUrlWithBase = (urlString: string, fieldName: string, baseUrl?: str
     }
     return resolved.href;
   } catch {
-    throw new Error(`Field \`${fieldName}\` harus berupa URL valid.`);
+    throw new Error(`Field \`${fieldName}\` must be a valid URL.`);
   }
 };
 
@@ -1852,7 +1917,7 @@ const runApiJsonDownload = async (request: ApiJsonRequest): Promise<DownloadResu
   const rawItems = pickByPath<unknown>(payload, itemsPath);
   const items = normalizeItems(rawItems);
   if (!items) {
-    throw new Error(`Path \`${itemsPath}\` harus menghasilkan array atau object.`);
+    throw new Error(`Path \`${itemsPath}\` must resolve to an array or object.`);
   }
 
   const urlCandidates = buildFieldCandidates(urlField, apiUrlFallbackPaths);
@@ -1875,7 +1940,7 @@ const runApiJsonDownload = async (request: ApiJsonRequest): Promise<DownloadResu
     if (typeof sourceUrlValue !== "string" || !sourceUrlValue.trim()) {
       skipped.push({
         index: i,
-        reason: `URL font tidak ditemukan (cek \`${urlCandidates.join(", ")}\`).`
+        reason: `Font URL not found (check \`${urlCandidates.join(", ")}\`).`
       });
       continue;
     }
@@ -2042,6 +2107,7 @@ export const runDirectUrlDownload = async (request: DirectUrlRequest): Promise<D
       const extractSpecimenOnlyZip = isTruthyFlag((metadata as any).extractSpecimenOnlyZip);
       const extractSpecimenPdfFromZip =
         extractSpecimenOnlyZip || isTruthyFlag((metadata as any).extractSpecimenPdfFromZip);
+      const zipExtractToRoot = isTruthyFlag((metadata as any).zipExtractToRoot);
       const extractedCount = await extractZipFonts({
         zipPath: filePath,
         outputDir,
@@ -2049,7 +2115,8 @@ export const runDirectUrlDownload = async (request: DirectUrlRequest): Promise<D
         downloaded,
         groupFolderHint: zipGroupHint,
         extractFonts: !extractSpecimenOnlyZip,
-        extractPdfs: extractSpecimenPdfFromZip
+        extractPdfs: extractSpecimenPdfFromZip,
+        extractToRoot: zipExtractToRoot
       });
       if (extractedCount <= 0) {
         console.warn(`[DIRECT-ZIP] No extractable font files found in ${fileName}`);
@@ -2308,6 +2375,9 @@ export const runBatchDirectDownload = async (request: BatchDirectRequest): Promi
           const extractSpecimenPdfFromZip =
             extractSpecimenOnlyZip ||
             isTruthyFlag(isRecord(font.metadata) ? (font.metadata as any).extractSpecimenPdfFromZip : undefined);
+          const zipExtractToRoot = isTruthyFlag(
+            isRecord(font.metadata) ? (font.metadata as any).zipExtractToRoot : undefined
+          );
           const extractedCount = await extractZipFonts({
             zipPath: filePath,
             outputDir,
@@ -2315,7 +2385,8 @@ export const runBatchDirectDownload = async (request: BatchDirectRequest): Promi
             downloaded,
             groupFolderHint: zipGroupHint,
             extractFonts: !extractSpecimenOnlyZip,
-            extractPdfs: extractSpecimenPdfFromZip
+            extractPdfs: extractSpecimenPdfFromZip,
+            extractToRoot: zipExtractToRoot
           });
           if (extractedCount <= 0) {
             console.warn(`[BATCH-ZIP] No extractable font files found in ${fileName}`);
@@ -2638,5 +2709,6 @@ export const runDownload = async (request: DownloadRequest): Promise<DownloadRes
     return runBatchDirectDownload(request);
   }
 
-  throw new Error("Mode download tidak didukung.");
+  throw new Error("Unsupported download mode.");
 };
+

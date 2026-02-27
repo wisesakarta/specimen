@@ -184,6 +184,7 @@ const fallbackInjectScript = () => `
       await sleep(70);
     }
     await sleep(1200);
+    window.__specimen_commercialtype_probe_done = true;
     window.__saka_commercialtype_probe_done = true;
   })();
 `;

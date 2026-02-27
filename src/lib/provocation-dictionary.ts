@@ -96,6 +96,7 @@ export function generateProvocationScript(strategyKey: keyof typeof PROVOCATION_
         await new Promise(r => setTimeout(r, 6000));
         
         // Signal completion to the interceptor
+        window.__specimen_extraction_complete = true;
         window.__saka_extraction_complete = true;
     })();`;
 }

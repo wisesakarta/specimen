@@ -522,6 +522,8 @@ const buildCotypeProvocationScript = (): string => `
     window.scrollTo(0, document.body.scrollHeight);
     await sleep(400);
 
+    window.__specimen_extraction_complete = true;
+
     window.__saka_extraction_complete = true;
   })();
 `;

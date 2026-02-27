@@ -6,6 +6,8 @@ const DINAMO_FONT_LIST_CSS_URL = "https://abcdinamo.com/fonts/font-list-css";
 const DINAMO_STATIC_LIST_URL = "https://abcdinamo.com/fonts/static-list";
 const DINAMO_VARIABLE_LIST_URL = "https://abcdinamo.com/fonts/variable-list";
 const DINAMO_OPTIONAL_STYLE_QUALIFIERS = new Set<string>(["mix"]);
+const DINAMO_FETCH_TIMEOUT_MS = 45000;
+const DINAMO_FETCH_MAX_RETRIES = 3;
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   value !== null && typeof value === "object" && !Array.isArray(value);
@@ -144,24 +146,50 @@ const buildOptionalDinamoStyleLabel = (asset: DinamoCssAsset, primaryFamilyName:
   return toCanonicalDinamoStyle(`${qualifier} ${style}`);
 };
 
-const fetchText = async (url: string, accept: string, timeoutMs = 45000): Promise<string> => {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeoutMs);
-  try {
-    const response = await fetch(url, {
-      signal: controller.signal,
-      headers: {
+const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
+
+const fetchText = async (
+  url: string,
+  accept: string,
+  options?: {
+    timeoutMs?: number;
+    referer?: string;
+    origin?: string;
+  }
+): Promise<string> => {
+  let lastError: unknown;
+  const timeoutMs = options?.timeoutMs ?? DINAMO_FETCH_TIMEOUT_MS;
+
+  for (let attempt = 1; attempt <= DINAMO_FETCH_MAX_RETRIES; attempt += 1) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+      const headers: Record<string, string> = {
         "User-Agent": DINAMO_UA,
         Accept: accept
+      };
+      if (options?.referer) headers.Referer = options.referer;
+      if (options?.origin) headers.Origin = options.origin;
+
+      const response = await fetch(url, {
+        signal: controller.signal,
+        headers
+      });
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status} (${url})`);
       }
-    });
-    if (!response.ok) {
-      throw new Error(`HTTP ${response.status} (${url})`);
+      return await response.text();
+    } catch (error) {
+      lastError = error;
+      if (attempt < DINAMO_FETCH_MAX_RETRIES) {
+        await sleep(500 * attempt);
+      }
+    } finally {
+      clearTimeout(timer);
     }
-    return await response.text();
-  } finally {
-    clearTimeout(timer);
   }
+
+  throw lastError instanceof Error ? lastError : new Error(`Fetch failed (${url})`);
 };
 
 type DinamoCatalogMeta = {
@@ -200,11 +228,11 @@ const mergeCatalogMeta = (a: DinamoCatalogMeta | undefined, b: DinamoCatalogMeta
   };
 };
 
-const fetchDinamoCatalogMeta = async (): Promise<Map<number, DinamoCatalogMeta>> => {
+const fetchDinamoCatalogMeta = async (referer?: string): Promise<Map<number, DinamoCatalogMeta>> => {
   const out = new Map<number, DinamoCatalogMeta>();
 
   try {
-    const staticText = await fetchText(DINAMO_STATIC_LIST_URL, "application/json,text/plain,*/*");
+    const staticText = await fetchText(DINAMO_STATIC_LIST_URL, "application/json,text/plain,*/*", { referer });
     const staticJson = JSON.parse(staticText);
     const families = Array.isArray(staticJson?.data) ? staticJson.data : [];
     for (const family of families) {
@@ -236,7 +264,7 @@ const fetchDinamoCatalogMeta = async (): Promise<Map<number, DinamoCatalogMeta>>
   }
 
   try {
-    const variableText = await fetchText(DINAMO_VARIABLE_LIST_URL, "application/json,text/plain,*/*");
+    const variableText = await fetchText(DINAMO_VARIABLE_LIST_URL, "application/json,text/plain,*/*", { referer });
     const variableJson = JSON.parse(variableText);
     const items = Array.isArray(variableJson?.data) ? variableJson.data : [];
     for (const item of items) {
@@ -391,14 +419,17 @@ const buildDinamoDirectAssets = async (
   targetProfile: Record<string, unknown>;
   expectedCount: number;
 } | undefined> => {
-  const cssText = await fetchText(DINAMO_FONT_LIST_CSS_URL, "text/css,*/*");
+  const cssText = await fetchText(DINAMO_FONT_LIST_CSS_URL, "text/css,*/*", {
+    referer: targetUrl,
+    origin: "https://abcdinamo.com"
+  });
   const parsedAssets = parseDinamoFontListCss(cssText);
   if (parsedAssets.length === 0) return undefined;
 
   const targetAssets = parsedAssets.filter((asset) => assetMatchesSlug(asset, familySlug));
   if (targetAssets.length === 0) return undefined;
 
-  const catalogMeta = await fetchDinamoCatalogMeta();
+  const catalogMeta = await fetchDinamoCatalogMeta(targetUrl);
 
   const slugToken = normalizeToken(familySlug);
   const primaryFamilyToken = normalizeToken(fallbackFamilyName) || slugToken;
@@ -533,11 +564,13 @@ const buildDinamoProvocationScript = (familyName: string): string => {
   return `
     (async () => {
       // Setup logging to communicate with Puppeteer
-      if (!window.__saka_logs) window.__saka_logs = [];
+      if (!window.__specimen_logs) window.__specimen_logs = [];
+      if (!window.__saka_logs) window.__saka_logs = window.__specimen_logs;
       const log = (msg) => {
         console.log(msg);
-        window.__saka_logs.push(msg);
-        if (window.__saka_logs.length > 50) window.__saka_logs.shift();
+        window.__specimen_logs.push(msg);
+        if (window.__specimen_logs.length > 50) window.__specimen_logs.shift();
+        window.__saka_logs = window.__specimen_logs;
       };
       
       const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -763,6 +796,7 @@ const buildDinamoProvocationScript = (familyName: string): string => {
       window.scrollTo(0, 0);
       await sleep(500);
       log("[SAKA] Provokasi Dinamo completed successfully!");
+      window.__specimen_extraction_complete = true;
       window.__saka_extraction_complete = true;
     })();
   `;
@@ -845,3 +879,4 @@ export const ABCDinamoScraper: Scraper = {
     }
   }
 };
+

@@ -528,6 +528,8 @@ const buildInjectScript = (params: {
       window.scrollTo(0, 0);
       await sleep(800);
 
+      window.__specimen_extraction_complete = true;
+
       window.__saka_extraction_complete = true;
     })();
   `;

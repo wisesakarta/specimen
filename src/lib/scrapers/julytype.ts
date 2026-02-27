@@ -455,6 +455,7 @@ const buildFallbackInjectScript = (): string => `
       await sleep(65);
     }
     await sleep(1400);
+    window.__specimen_julytype_probe_done = true;
     window.__saka_julytype_probe_done = true;
   })();
 `;
