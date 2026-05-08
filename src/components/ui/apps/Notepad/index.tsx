@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, useCallback } from "react";
-import type { SovereignRuntimeProps } from "../../Win95RuntimeHost";
+import type { SovereignRuntimeProps } from "@/runtime/runtime-dispatch";
 import { cn } from "@/lib/style-composer";
 import NotepadFindDialog from "./NotepadFindDialog";
 import Win95Icon from "../../Win95Icon";

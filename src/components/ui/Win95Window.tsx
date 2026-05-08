@@ -136,12 +136,7 @@ export default function Win95Window({
       style={{
         background: "var(--win-face)",
         pointerEvents: "auto",
-        boxShadow: `
-          inset 1px 1px 0 var(--win-highlight),
-          inset -1px -1px 0 var(--win-dk-shadow),
-          inset 2px 2px 0 var(--win-face-light),
-          inset -2px -2px 0 var(--win-shadow)
-        `,
+        boxShadow: "var(--bevel-raised)",
         border: "1px solid var(--win-dk-shadow)",
         ...style,
       }}

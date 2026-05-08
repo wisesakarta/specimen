@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import type { SovereignRuntimeProps } from "../Win95RuntimeHost";
+import type { SovereignRuntimeProps } from "@/runtime/runtime-dispatch";
 
 /**
  * JSPaintApp — Graphical sovereign vessel runtime.
@@ -82,10 +82,10 @@ export default function JSPaintApp({
       initial={false}
       animate={isVisible ? { 
         filter: "brightness(1) contrast(1)",
-        backgroundColor: "#c0c0c0" // win-face
+        backgroundColor: "var(--win-face)" 
       } : { 
         filter: "brightness(0.85) contrast(0.9) saturate(0.6)",
-        backgroundColor: "#808080" 
+        backgroundColor: "var(--win-shadow)" 
       }}
       transition={{ duration: 0.3, ease: "easeOut" }}
     >
@@ -107,8 +107,8 @@ export default function JSPaintApp({
       {/* Environmental Substrate — Atmospheric continuity */}
       <div className="absolute inset-0 win-dither pointer-events-none opacity-[0.04] z-50" />
       
-      {/* Artifact Framing — Subtle inner shadow to ground the iframe */}
-      <div className="absolute inset-0 pointer-events-none z-30 shadow-[inset_1px_1px_4px_rgba(0,0,0,0.1)]" />
+      {/* Artifact Framing — Sunken bevel to ground the iframe */}
+      <div className="absolute inset-0 pointer-events-none z-30 shadow-[var(--bevel-sunken)]" />
     </motion.div>
   );
 }

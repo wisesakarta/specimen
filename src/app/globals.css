@@ -68,6 +68,7 @@
     0 0 0 1px var(--win-highlight);
 
   /* Sizing */
+  --win-taskbar-height:     28px;
   --win-titlebar-height:    22px;
   --win-titlebar-font-size: 11px;
   --win-control-size:       16px;

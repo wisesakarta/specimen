@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import Editor, { type OnMount, loader } from "@monaco-editor/react";
 import { motion, AnimatePresence } from "framer-motion";
-import type { SovereignRuntimeProps } from "../Win95RuntimeHost";
+import type { SovereignRuntimeProps } from "@/runtime/runtime-dispatch";
 import type { RuntimeActivityState } from "@/lib/runtime";
 import { cn } from "@/lib/style-composer";
 

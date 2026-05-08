@@ -12,15 +12,11 @@ import { RuntimeConstitution, getLifecycleState, AudioPlaybackState, RuntimeActi
 import { loadSessionSnapshot, useSessionSave } from "@/hooks/useSessionPersistence";
 import { useWindowManager, SPECIMEN_ID } from "@/hooks/useWindowManager";
 import type { PersistedRecent } from "@/lib/persistence";
-import SovereignRuntimeHost from "./Win95RuntimeHost";
+import { DispatchSovereignCitizen, DispatchManagedCitizen, resolveRuntimeSubtitle, extractRuntimeTextPayload } from "@/runtime/runtime-dispatch";
+import type { RuntimeSnapshot } from "@/components/ui/apps/Explorer";
 import Win95Icon from "./Win95Icon";
 import { Notice } from "@/app/page";
 import Win95Notification from "./Win95Notification";
-
-// App Imports
-import Notepad from "./apps/Notepad";
-import Explorer, { type RuntimeSnapshot } from "./apps/Explorer";
-import WebBrowser from "./apps/WebBrowser";
 
 import Win95SearchInput from "./Win95SearchInput";
 import Win95ShutdownDialog from "./Win95ShutdownDialog";
@@ -28,37 +24,7 @@ import DesktopAmbientOverlay from "./DesktopAmbientOverlay";
 
 
 
-function resolveNotepadContent(data: unknown): string {
-  if (typeof data === "string") return data;
-  if (data && typeof data === "object" && "content" in data && typeof (data as { content: unknown }).content === "string") {
-    return (data as { content: string }).content;
-  }
-  return "";
-}
 
-function deriveSubtitle(w: WindowState): string | undefined {
-  if (w.type === "MONACO_EDITOR") {
-    const content = (w.data as { content?: string } | null)?.content;
-    if (!content) return undefined;
-    const firstLine = content.split("\n").find(
-      (l) => l.trim() && !l.trim().startsWith("//") && !l.trim().startsWith("#") && !l.trim().startsWith("/*")
-    );
-    return firstLine?.trim().slice(0, 40) || undefined;
-  }
-  if (w.type === "WEBAMP") {
-    return w.playback?.track?.title ?? undefined;
-  }
-  if (w.type === "NOTEPAD") {
-    const content = resolveNotepadContent(w.data);
-    if (!content) return undefined;
-    const firstLine = content.split("\n").find((l) => l.trim());
-    return firstLine?.trim().slice(0, 40) || undefined;
-  }
-  if (w.type === "JSPAINT") {
-    return w.activity?.subtitle ?? undefined;
-  }
-  return undefined;
-}
 function updateNodeInTree(nodes: VFSNode[], id: string, updates: Partial<VFSNode>): VFSNode[] {
   return nodes.map(node => {
     if (node.id === id) {
@@ -274,7 +240,7 @@ export default function Win95Desktop({
                 onDataChange: (data: unknown) => {
                   updateWindowState(win.id, { data });
                   // VFS Synchronization (Environmental Materiality)
-                  setVfs(prev => updateNodeInTree(prev, win.id, { content: resolveNotepadContent(data) }));
+                  setVfs(prev => updateNodeInTree(prev, win.id, { content: extractRuntimeTextPayload(data) }));
                   updateRecents(win.id, win.type, win.title, win.icon, data);
                 },
                 initialData: win.data,
@@ -288,7 +254,7 @@ export default function Win95Desktop({
                 return (
                   <Win95Window
                     key={win.id}
-                    title={`${win.activity?.dirty ? "*" : ""}${deriveSubtitle(win) ? `${deriveSubtitle(win)} - ${win.title}` : win.title}`}
+                    title={`${win.activity?.dirty ? "*" : ""}${resolveRuntimeSubtitle(win) ? `${resolveRuntimeSubtitle(win)} - ${win.title}` : win.title}`}
                     icon={win.icon}
                     active={activeWindowId === win.id}
                     onClose={() => closeWindow(win.id)}
@@ -324,7 +290,7 @@ export default function Win95Desktop({
                       overflow: "hidden",
                     }}
                   >
-                    <SovereignRuntimeHost type={win.type} {...sovereignCallbacks} />
+                    <DispatchSovereignCitizen type={win.type} {...sovereignCallbacks} />
                   </Win95Window>
                 );
               }
@@ -363,7 +329,7 @@ export default function Win95Desktop({
                     height: win.height,
                   }}
                 >
-                  <SovereignRuntimeHost type={win.type} {...sovereignCallbacks} />
+                  <DispatchSovereignCitizen type={win.type} {...sovereignCallbacks} />
                 </motion.div>
               );
             }
@@ -448,14 +414,19 @@ export default function Win95Desktop({
                     x: isMobile || win.isMaximized ? 0 : (win.position?.x || 0),
                     y: isMobile || win.isMaximized ? 0 : (win.position?.y || 0),
                     width: isMobile || win.isMaximized ? "100%" : win.width,
-                    height: isMobile || win.isMaximized ? "calc(100% - 28px)" : win.height,
+                    height: isMobile || win.isMaximized ? "calc(100% - var(--win-taskbar-height))" : win.height,
                     minWidth: isMobile || win.isMaximized ? "100%" : 300,
-                    minHeight: isMobile || win.isMaximized ? "calc(100% - 28px)" : 200,
+                    minHeight: isMobile || win.isMaximized ? "calc(100% - var(--win-taskbar-height))" : 200,
                     overflow: "hidden", // Native citizens are always clipped
                   }}
                 >
-                  {win.type === "EXPLORER" && (() => {
-                    const runtimeSnapshots: RuntimeSnapshot[] = windows
+                  <DispatchManagedCitizen
+                    type={win.type}
+                    windowId={win.id}
+                    windowData={win.data}
+                    vfs={vfs}
+                    recents={recents}
+                    runtimeSnapshots={windows
                       .filter((w) => w.id !== win.id)
                       .sort((a, b) => b.zIndex - a.zIndex)
                       .map((w) => ({
@@ -466,24 +437,13 @@ export default function Win95Desktop({
                         isMinimized: w.isMinimized,
                         activity:    w.activity,
                         playback:    w.playback,
-                        subtitle:    deriveSubtitle(w),
+                        subtitle:    resolveRuntimeSubtitle(w),
                         openedAt:    w.openedAt,
-                      }));
-                    return (
-                      <Explorer
-                        vfs={vfs}
-                        initialData={win.data}
-                        runtimes={runtimeSnapshots}
-                        recents={recents}
-                        onOpenNode={handleOpenNode}
-                        onFocusWindow={(id) => focusWindow(id)}
-                        onDataChange={(data) =>
-                          updateWindowState(win.id, { data })
-                        }
-                      />
-                    );
-                  })()}
-                  {win.type === "BROWSER" && <WebBrowser />}
+                      }))}
+                    onOpenNode={handleOpenNode}
+                    onFocusWindow={(id) => focusWindow(id)}
+                    onDataChange={(data) => updateWindowState(win.id, { data })}
+                  />
                 </Win95Window>
               </motion.div>
             );
@@ -500,8 +460,9 @@ export default function Win95Desktop({
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: 10 }}
             transition={{ duration: 0.1, ease: "linear" }}
-            className="absolute left-1 bottom-8 w-56 flex z-[2001]"
+            className="absolute left-1 flex z-[2001] w-56"
             style={{
+              bottom: "calc(var(--win-taskbar-height) + 4px)",
               background: "var(--win-face)",
               boxShadow: "var(--bevel-raised)",
               border: "1px solid var(--win-dk-shadow)",
@@ -510,7 +471,7 @@ export default function Win95Desktop({
             <div
               className="w-8 relative flex-shrink-0 select-none overflow-hidden"
               style={{
-                background: "linear-gradient(to bottom, #808080, #000080)",
+                background: "linear-gradient(to bottom, var(--win-shadow), var(--win-title-active))",
               }}
             >
               <span
@@ -534,13 +495,13 @@ export default function Win95Desktop({
               <StartMenuItem icon="Mmsys100_16x16_4.png" label="Winamp" onClick={() => handleOpenNode(vfs.find(n => n.appType === "WEBAMP")!)} />
                <StartMenuItem icon="📄" label={(() => {
                  const win = windows.find(w => w.type === "NOTEPAD");
-                 const sub = win ? deriveSubtitle(win) : undefined;
+                 const sub = win ? resolveRuntimeSubtitle(win) : undefined;
                  const displaySub = sub ? (sub.length > 16 ? sub.slice(0, 16) + "..." : sub) : undefined;
                  return displaySub ? `Notepad (${displaySub})` : "Notepad";
                })()} onClick={() => handleOpenNode(vfs.find(n => n.appType === "NOTEPAD")!)} />
                <StartMenuItem icon="📝" label={(() => {
                  const win = windows.find(w => w.type === "MONACO_EDITOR");
-                 const sub = win ? deriveSubtitle(win) : undefined;
+                 const sub = win ? resolveRuntimeSubtitle(win) : undefined;
                  const displaySub = sub ? (sub.length > 16 ? sub.slice(0, 16) + "..." : sub) : undefined;
                  return displaySub ? `Monaco (${displaySub})` : "Monaco Editor";
                })()} onClick={() => handleOpenNode(vfs.find(n => n.appType === "MONACO_EDITOR")!)} />
@@ -562,8 +523,8 @@ export default function Win95Desktop({
 
       {bootStatus === "ready" && !isShuttingDown && (
         <div
-          className="h-7 bg-[var(--win-face)] border-t border-[var(--win-dk-shadow)] shadow-[inset_0_1px_0_var(--win-highlight)] flex items-center px-1 gap-1 z-[1000] overflow-hidden"
-          style={{ fontFamily: "var(--font-shell)" }}
+          className="bg-[var(--win-face)] border-t border-[var(--win-dk-shadow)] shadow-[inset_0_1px_0_var(--win-highlight)] flex items-center px-1 gap-1 z-[1000] overflow-hidden"
+          style={{ height: "var(--win-taskbar-height)", fontFamily: "var(--font-shell)" }}
         >
           {/* Start Button */}
           <div className="relative group/start shrink-0">
