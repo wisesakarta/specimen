@@ -1,4 +1,4 @@
-import type { FontMetadata, ScrapeResult, Scraper } from "./types";
+import type { FontMetadata, ScrapeResult, Scraper } from "./scraper-protocol";
 
 const SHARPTYPE_ORIGIN = "https://www.sharptype.co";
 const SHARPTYPE_FAMILIES_ENDPOINT = `${SHARPTYPE_ORIGIN}/api/font-families`;
@@ -580,6 +580,24 @@ const extractFeatureTagsFromCharacterSets = (sets: SharpCharacterSet[]): string[
   return Array.from(tags).sort();
 };
 
+const normalizeRequiredFeatureTags = (featureTags: string[], sets: SharpCharacterSet[]): string[] => {
+  const normalized = new Set(featureTags.map((tag) => tag.toLowerCase()));
+  const usesCompositeOldstyleProportional = sets.some((set) => {
+    const settings = Array.isArray(set.fontFeatureSettings)
+      ? set.fontFeatureSettings.filter((value): value is string => typeof value === "string")
+      : typeof set.fontFeatureSettings === "string"
+        ? [set.fontFeatureSettings]
+        : [];
+    return settings.some((value) => /onum/i.test(value) && /pnum/i.test(value));
+  });
+
+  if (usesCompositeOldstyleProportional && normalized.has("onum") && normalized.has("pnum")) {
+    normalized.delete("pnum");
+  }
+
+  return Array.from(normalized).sort();
+};
+
 const extractFeatureTagsFromHtml = (html: string): string[] => {
   const tags = new Set<string>();
   for (const match of html.matchAll(FEATURE_TAG_RE)) {
@@ -809,6 +827,7 @@ export const SharpTypeScraper: Scraper = {
       const requiredFeatureTagsRaw: string[] = [];
       const hintedFeatureTagsRaw: string[] = [];
       const styleRecords: SharpStyleRecord[] = [];
+      const allCharacterSets: SharpCharacterSet[] = [];
       let totalCharacterSets = 0;
       const globalCodePoints = new Set<string>();
 
@@ -832,6 +851,7 @@ export const SharpTypeScraper: Scraper = {
         const characterSets = extractCharacterSets(characterSetsPayload);
         const rows = buildStyleRecords({ family, packageFonts, fontRows });
         styleRecords.push(...rows);
+        allCharacterSets.push(...characterSets);
 
         totalCharacterSets += characterSets.length;
         for (const set of characterSets) {
@@ -851,7 +871,8 @@ export const SharpTypeScraper: Scraper = {
         styleRecords.sort((a, b) => `${a.familySlug}|${a.styleSlug}|${a.fontId}`.localeCompare(`${b.familySlug}|${b.styleSlug}|${b.fontId}`))
       );
       const specimenPdfUrls = dedupeStringList(specimenPdfUrlsRaw);
-      const requiredFeatureTags = dedupeStringList(requiredFeatureTagsRaw.map((tag) => tag.toLowerCase())).sort();
+      const requiredFeatureTagsRawUnique = dedupeStringList(requiredFeatureTagsRaw.map((tag) => tag.toLowerCase())).sort();
+      const requiredFeatureTags = normalizeRequiredFeatureTags(requiredFeatureTagsRawUnique, allCharacterSets);
       const hintedFeatureTags = dedupeStringList(hintedFeatureTagsRaw.map((tag) => tag.toLowerCase())).sort();
 
       const targetUrl =
@@ -926,6 +947,7 @@ export const SharpTypeScraper: Scraper = {
           targetProfile,
           specimenPdfUrls,
           requiredFeatureTags,
+          requiredFeatureTagsRaw: requiredFeatureTagsRawUnique,
           hintedFeatureTags,
           uniqueCodePointCount: globalCodePoints.size,
           totalCharacterSets,
@@ -943,7 +965,6 @@ export const SharpTypeScraper: Scraper = {
     }
   }
 };
-
 
 
 

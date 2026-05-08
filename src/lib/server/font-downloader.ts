@@ -13,18 +13,36 @@ import type {
   DownloadResult,
   DownloadedFile,
   SkippedItem
-} from "@/lib/types";
+} from "@/lib/downloader-protocol";
 import { assertLicenseAllowed } from "@/lib/server/license-policy";
 import { downloadBinary, fetchJson, fetchText, parseCssFontUrls, pickByPath } from "@/lib/server/fetchers";
 import { runBrowserIntercept } from "@/lib/server/browser-downloader";
 import { runValidationLog } from "@/lib/server/services/validation";
+import { runPureSuccessProtocol } from "@/lib/server/services/pure-success-protocol";
+import { runTechnicalQa } from "@/lib/server/services/technical-qa";
 import { collectSpecimenPdfAudit } from "@/lib/server/specimen-audit";
 import { getInlineFontAsset } from "@/lib/server/inline-font-cache";
+import {
+  shouldFallbackAfterBatchDirectError,
+  shouldFallbackToBrowserIntercept
+} from "@/lib/server/services/protocol-escalation";
 import { joinOpaquePath, getBaseDownloadRoot, getStagingRoot } from "./opaque-path";
 // @ts-ignore -- adm-zip uses export=; tsc handles it via esModuleInterop for this project.
 import AdmZip from "adm-zip";
 
 const supportedFontExtensions = new Set([".woff2", ".woff", ".ttf", ".otf", ".eot", ".zip"]);
+const generatedOutputLogNames = new Set([
+  "download-log.json",
+  "validation-log.json",
+  "analysis-log.json",
+  "quality-log.json",
+  "monolisa-quality-log.json",
+  "specimen-log.json",
+  "pure-success-log.json",
+  "technical-qa-log.json",
+  "master-restoration-report.json",
+  "master-restoration-log.json"
+]);
 const baseDownloadRoot = getBaseDownloadRoot();
 const stagingRoot = getStagingRoot();
 const apiUrlFallbackPaths = [
@@ -189,12 +207,31 @@ const toSafeSegment = (value: string): string => {
   return normalized || "job";
 };
 
+const toSafeOutputFolderPath = (value: string): string => {
+  const sanitizePart = (part: string): string => {
+    const normalized = part
+      .toLowerCase()
+      .replace(/[^a-z0-9._-]+/g, "-")
+      .replace(/-+/g, "-")
+      .replace(/^-+|-+$/g, "");
+    return normalized || "job";
+  };
+  const parts = value
+    .split(/[\\/]+/g)
+    .map((part) => part.trim())
+    .filter(Boolean)
+    .map((part) => sanitizePart(part));
+  if (parts.length === 0) return "job";
+  return path.join(...parts);
+};
+
 const toSafeFileName = (value: string): string => {
   const cleaned = value
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-+|-+$/g, "");
-  return cleaned || "font-file";
+  const clamped = cleaned.slice(0, 140).replace(/-+$/g, "");
+  return clamped || "font-file";
 };
 
 const toTitleWords = (value: string): string =>
@@ -447,9 +484,137 @@ const shouldDisableInstanceExplosion = (metadata: unknown): boolean => {
   return isTruthyFlag(metadata.disableInstanceExplosion);
 };
 
+const resolveExpectedInstanceCount = (metadata: unknown): number | undefined => {
+  if (!isRecord(metadata)) return undefined;
+
+  const explicitCount = Number((metadata as any).expectedInstanceCount);
+  if (Number.isFinite(explicitCount) && explicitCount > 0) {
+    return Math.max(1, Math.floor(explicitCount));
+  }
+
+  const expectedStyles = normalizeStringList((metadata as any).expectedStyles);
+  if (expectedStyles && expectedStyles.length > 0) {
+    return expectedStyles.length;
+  }
+
+  return undefined;
+};
+
 const shouldPruneRawZipAfterExtract = (metadata: unknown): boolean => {
   if (!isRecord(metadata)) return false;
   return isTruthyFlag(metadata.pruneRawZipAfterExtract) || isTruthyFlag(metadata.deleteRawZipAfterExtract);
+};
+
+const normalizeFormatTokens = (value: unknown): string[] => {
+  const allowed = new Set(["woff", "woff2", "otf", "ttf"]);
+  const out = new Set<string>();
+
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      const token = String(item || "").trim().toLowerCase();
+      if (!allowed.has(token)) continue;
+      out.add(token);
+    }
+    return Array.from(out.values());
+  }
+
+  if (typeof value === "string") {
+    for (const part of value.split(",")) {
+      const token = part.trim().toLowerCase();
+      if (!allowed.has(token)) continue;
+      out.add(token);
+    }
+  }
+
+  return Array.from(out.values());
+};
+
+const resolvePureSuccessRequiredFormats = (...sources: unknown[]): string[] | undefined => {
+  const values = new Set<string>();
+
+  const pull = (source: unknown) => {
+    if (!isRecord(source)) return;
+
+    for (const item of normalizeFormatTokens((source as any).requiredFormats)) {
+      values.add(item);
+    }
+
+    if (isRecord((source as any).targetProfile)) {
+      for (const item of normalizeFormatTokens((source as any).targetProfile.requiredFormats)) {
+        values.add(item);
+      }
+    }
+
+    if (isRecord((source as any).metadata)) {
+      pull((source as any).metadata);
+    }
+  };
+
+  for (const source of sources) pull(source);
+
+  if (values.size === 0) return undefined;
+  return Array.from(values.values());
+};
+
+const resolvePureSuccessSourceLimitedFormats = (...sources: unknown[]): string[] | undefined => {
+  const values = new Set<string>();
+
+  const pull = (source: unknown) => {
+    if (!isRecord(source)) return;
+
+    for (const item of normalizeFormatTokens((source as any).sourceLimitedFormats)) {
+      values.add(item);
+    }
+
+    if (isRecord((source as any).targetProfile)) {
+      for (const item of normalizeFormatTokens((source as any).targetProfile.sourceLimitedFormats)) {
+        values.add(item);
+      }
+    }
+
+    if (isRecord((source as any).metadata)) {
+      pull((source as any).metadata);
+    }
+  };
+
+  for (const source of sources) pull(source);
+  if (values.size === 0) return undefined;
+  return Array.from(values.values());
+};
+
+const clampDownloadRetryBudget = (value: unknown): number | undefined => {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return undefined;
+  const rounded = Math.floor(parsed);
+  if (rounded < 1) return undefined;
+  return Math.min(12, rounded);
+};
+
+const resolveDownloadRetryBudget = (...sources: unknown[]): number | undefined => {
+  let best: number | undefined;
+
+  const pull = (source: unknown) => {
+    if (!isRecord(source)) return;
+
+    const candidates: unknown[] = [
+      (source as any).downloadRetries,
+      (source as any).maxRetries,
+      (source as any).retryBudget
+    ];
+
+    for (const candidate of candidates) {
+      const parsed = clampDownloadRetryBudget(candidate);
+      if (typeof parsed !== "number") continue;
+      if (typeof best !== "number" || parsed > best) best = parsed;
+    }
+
+    if (isRecord((source as any).metadata)) {
+      pull((source as any).metadata);
+    }
+  };
+
+  for (const source of sources) pull(source);
+  return best;
 };
 
 const detectExtension = (url: string, metadata?: any): string => {
@@ -577,9 +742,28 @@ const buildHeaders = (request: {
     headers["Referer"] = pageUrl || "https://brandingwithtype.com/typefaces";
     headers["Accept"] = "*/*";
   }
+  if (urlStr.includes("nuformtype.com")) {
+    const pageUrl = typeof request.metadata?.pageUrl === "string" ? request.metadata.pageUrl : "";
+    headers["Origin"] = "https://nuformtype.com";
+    headers["Referer"] = pageUrl || "https://nuformtype.com/";
+    headers["Accept"] = "*/*";
+  }
+
+  const metadata = request.metadata || {};
+  const fallbackReferer = [metadata.pageUrl, metadata.targetUrl, metadata.originalUrl].find(
+    (value) => typeof value === "string" && /^https?:\/\//i.test(value)
+  ) as string | undefined;
+  if (!headers["Referer"] && fallbackReferer) {
+    headers["Referer"] = fallbackReferer;
+    headers["Accept"] = headers["Accept"] || "*/*";
+    try {
+      headers["Origin"] = headers["Origin"] || new URL(fallbackReferer).origin;
+    } catch {
+      // ignore malformed referer candidates
+    }
+  }
 
   // Custom headers from scrapers metadata if available
-  const metadata = request.metadata || {};
   if (metadata.headers && typeof metadata.headers === "object") {
     Object.assign(headers, metadata.headers as Record<string, string>);
   }
@@ -644,7 +828,7 @@ const deriveFoundryToken = (metadata?: any): string | undefined => {
 
 const makeJobFolder = (outputFolder?: string, metadata?: any): string => {
   // Use downloads root for explicit output folders, otherwise keep transient staging flow.
-  const root = outputFolder ? path.join(baseDownloadRoot, toSafeSegment(outputFolder)) : stagingRoot;
+  const root = outputFolder ? path.join(baseDownloadRoot, toSafeOutputFolderPath(outputFolder)) : stagingRoot;
   const finalize = (candidate: string): string => (outputFolder ? candidate : ensureUniqueDirPath(candidate));
 
   const deriveFromFonts = (): { foundry?: string; family?: string; category?: string } => {
@@ -692,6 +876,112 @@ const makeJobFolder = (outputFolder?: string, metadata?: any): string => {
 };
 
 const toRelative = (absolutePath: string): string => path.relative(process.cwd(), absolutePath);
+
+// Berkeley Mono standard: organise downloaded font files into format subfolders.
+// .woff2 → Webfonts/Woff2/  .woff → Webfonts/Woff/  .ttf → TTF/  .otf → OTF/
+// JSON logs and other non-font files remain in the root of outputDir.
+const FORMAT_SUBFOLDERS: ReadonlyMap<string, string> = new Map([
+  [".woff2", path.join("Webfonts", "Woff2")],
+  [".woff",  path.join("Webfonts", "Woff")],
+  [".ttf",   "TTF"],
+  [".otf",   "OTF"],
+]);
+
+const organizeOutputByFormat = async (outputDir: string): Promise<void> => {
+  let entries: fs.Dirent[];
+  try {
+    entries = fs.readdirSync(outputDir, { withFileTypes: true });
+  } catch {
+    return;
+  }
+
+  for (const entry of entries) {
+    if (!entry.isFile()) continue;
+    const ext = path.extname(entry.name).toLowerCase();
+    const subfolder = FORMAT_SUBFOLDERS.get(ext);
+    if (!subfolder) continue;
+
+    const src = path.join(outputDir, entry.name);
+    const destDir = path.join(outputDir, subfolder);
+    const dest = path.join(destDir, entry.name);
+    try {
+      await mkdir(destDir, { recursive: true });
+      await renameFile(src, dest);
+    } catch {
+      // best-effort: skip files that cannot be moved (locked, already moved, etc.)
+    }
+  }
+};
+
+const isGeneratedOutputArtifact = (fileName: string): boolean => {
+  const lower = fileName.toLowerCase();
+  if (generatedOutputLogNames.has(lower)) return true;
+  if (/-log\.json$/.test(lower)) return true;
+  const ext = path.extname(lower);
+  if (supportedFontExtensions.has(ext)) return true;
+  if (ext === ".pdf") return true;
+  return false;
+};
+
+const shouldResetDeterministicOutputDir = (dirPath: string): boolean => {
+  if (!fs.existsSync(dirPath)) return false;
+
+  // Safety boundary: only prune managed output under downloads root.
+  const resolvedDir = path.resolve(dirPath);
+  const resolvedRoot = path.resolve(baseDownloadRoot);
+  const normalizedDir = process.platform === "win32" ? resolvedDir.toLowerCase() : resolvedDir;
+  const normalizedRoot = process.platform === "win32" ? resolvedRoot.toLowerCase() : resolvedRoot;
+  if (!normalizedDir.startsWith(normalizedRoot)) return false;
+
+  const stack = [dirPath];
+  let scannedEntries = 0;
+  const maxEntries = 4000;
+
+  while (stack.length > 0) {
+    const current = stack.pop() as string;
+    let entries: fs.Dirent[] = [];
+    try {
+      entries = fs.readdirSync(current, { withFileTypes: true });
+    } catch {
+      continue;
+    }
+
+    for (const entry of entries) {
+      scannedEntries += 1;
+      if (scannedEntries > maxEntries) {
+        // Large pre-existing trees are treated as managed output to avoid stale contamination.
+        return true;
+      }
+
+      const fullPath = joinOpaquePath(current, entry.name);
+      if (entry.isDirectory()) {
+        stack.push(fullPath);
+        continue;
+      }
+
+      if (entry.isFile() && isGeneratedOutputArtifact(entry.name)) {
+        return true;
+      }
+    }
+  }
+
+  return false;
+};
+
+const prepareOutputDir = async (
+  outputDir: string,
+  resetDeterministicArtifacts: boolean,
+  cleanupRootDir?: string
+): Promise<void> => {
+  const cleanupTarget =
+    resetDeterministicArtifacts && typeof cleanupRootDir === "string" && cleanupRootDir.trim()
+      ? cleanupRootDir
+      : outputDir;
+  if (resetDeterministicArtifacts && shouldResetDeterministicOutputDir(cleanupTarget)) {
+    fs.rmSync(cleanupTarget, { recursive: true, force: true });
+  }
+  await mkdir(outputDir, { recursive: true });
+};
 
 type FoundryQualityProfile = {
   profileId?: string;
@@ -773,6 +1063,8 @@ const normalizeQualityStyleToken = (value: string): string => {
     .replace(/\btrial\b/g, "")
     .replace(/\blcg\b/g, "")
     .replace(/\bweb\b/g, "")
+    .replace(/\bvariable\s*font\b/g, " variable ")
+    .replace(/\bvf\b/g, " variable ")
     .replace(/[_-]+/g, " ")
     .replace(/\s+/g, " ")
     .trim()
@@ -795,10 +1087,71 @@ const normalizeQualityStyleToken = (value: string): string => {
   } else if (token.endsWith("variable")) {
     token = token.replace(/variable$/, "regular");
   }
+  if (token.includes("variable")) {
+    token = token.replace(/variable/g, "");
+    if (!token) token = "regular";
+  }
   if (token.endsWith("oblique")) {
     token = `${token.slice(0, -7)}italic`;
   }
+  // Family-style labels often alternate between "Foo Italic" and "Foo Regular Italic".
+  // Collapse both to one token unless a concrete weight is already present.
+  if (
+    token.endsWith("italic") &&
+    !/(thin|extralight|light|book|regular|medium|semibold|demibold|bold|extrabold|black|heavy)italic$/.test(token)
+  ) {
+    token = token.replace(/italic$/, "regularitalic");
+  }
   return token;
+};
+
+const buildFileStyleTokenCandidates = (fileName: string): string[] => {
+  const stem = path.basename(fileName || "", path.extname(fileName || ""));
+  if (!stem) return [];
+
+  const spaced = stem.replace(/[_-]+/g, " ").replace(/\s+/g, " ").trim();
+  const parts = spaced.split(" ").filter(Boolean);
+  const candidates = new Set<string>();
+
+  const add = (value: string) => {
+    const token = normalizeQualityStyleToken(value);
+    if (token) candidates.add(token);
+  };
+
+  add(spaced);
+  add(spaced.replace(/\bweb\b/gi, " "));
+
+  for (let i = 0; i < parts.length; i += 1) {
+    add(parts.slice(i).join(" "));
+  }
+
+  return Array.from(candidates.values());
+};
+
+const resolveExpectedStyleFromFileName = (
+  fileName: string,
+  expectedStyleMap: Map<string, string>
+): { token: string; label: string } | undefined => {
+  if (!fileName || expectedStyleMap.size === 0) return undefined;
+
+  const candidates = buildFileStyleTokenCandidates(fileName);
+  let best: { token: string; label: string; score: number } | undefined;
+
+  for (const candidate of candidates) {
+    for (const [expectedToken, expectedLabel] of expectedStyleMap.entries()) {
+      const isExact = candidate === expectedToken;
+      const isContains = candidate.includes(expectedToken) || expectedToken.includes(candidate);
+      if (!isExact && !isContains) continue;
+
+      const score = (isExact ? 100000 : 0) + expectedToken.length;
+      if (!best || score > best.score) {
+        best = { token: expectedToken, label: expectedLabel, score };
+      }
+    }
+  }
+
+  if (!best) return undefined;
+  return { token: best.token, label: best.label };
 };
 
 const dedupeStyleLabels = (styles: string[]): string[] => {
@@ -1304,6 +1657,88 @@ const runFoundryQualityAudit = async (params: {
     ? (validationData.full_fonts.filter((entry) => isRecord(entry)) as Record<string, unknown>[])
     : [];
 
+  // Some foundries (notably Typotheque icon families) ship a single VF URL that contains many named instances,
+  // but their catalog only reports a single "default" style. When this happens, expand expectedStyles from
+  // the VF's fvar instances so coverage reflects the actual family variant space.
+  if (
+    profile.styleScope === "family-style" &&
+    profile.profileId === "typotheque-target-profile-v1" &&
+    profile.expectedStyles.length > 0 &&
+    profile.expectedStyles.length <= 4
+  ) {
+    try {
+      const { createRequire } = await import("node:module");
+      const require = createRequire(import.meta.url);
+      const fontkit = require("fontkit");
+
+      const candidates = downloaded
+        .map((item) => (typeof item.filePath === "string" ? path.resolve(process.cwd(), item.filePath) : ""))
+        .filter((filePath) => filePath && filePath.toLowerCase().endsWith(".woff2") && fs.existsSync(filePath));
+
+      let bestExpected: string[] | undefined;
+      let bestCount = 0;
+
+      for (const filePath of candidates) {
+        let font: any;
+        try {
+          font = fontkit.openSync(filePath);
+        } catch {
+          continue;
+        }
+
+        const instanceCount = Number(font?.fvar?.instanceCount || 0);
+        if (!Number.isFinite(instanceCount) || instanceCount <= profile.expectedStyles.length) {
+          try {
+            font?.close?.();
+          } catch {
+            // ignore
+          }
+          continue;
+        }
+
+        const familyName = typeof font?.familyName === "string" ? font.familyName.trim() : "";
+        const fallbackSubfamily =
+          typeof font?.subfamilyName === "string" && font.subfamilyName.trim() ? font.subfamilyName.trim() : "Regular";
+        const instances = Array.isArray(font?.fvar?.instance) ? font.fvar.instance : [];
+        const derived: string[] = [];
+
+        for (const inst of instances) {
+          const raw = typeof inst?.name?.en === "string" ? inst.name.en : typeof inst?.name === "string" ? inst.name : "";
+          const styleName = (raw || "").trim() || fallbackSubfamily;
+          const fullLabel =
+            familyName && !styleName.toLowerCase().startsWith(familyName.toLowerCase())
+              ? `${familyName} ${styleName}`.trim()
+              : styleName;
+          if (fullLabel) derived.push(fullLabel);
+        }
+
+        // Some default instances can point at the font's typographic subfamily name ID and lack a per-instance name.
+        // In that case, ensure at least one expected style exists for the fallback subfamily.
+        if (derived.length < instanceCount && familyName) {
+          derived.push(`${familyName} ${fallbackSubfamily}`.trim());
+        }
+
+        const expected = dedupeStyleLabels(derived);
+        if (expected.length > bestCount) {
+          bestCount = expected.length;
+          bestExpected = expected;
+        }
+
+        try {
+          font?.close?.();
+        } catch {
+          // ignore
+        }
+      }
+
+      if (bestExpected && bestExpected.length > profile.expectedStyles.length) {
+        profile.expectedStyles = bestExpected;
+      }
+    } catch {
+      // best-effort: keep original expectedStyles if VF inspection fails
+    }
+  }
+
   const expectedStyleMap = new Map<string, string>();
   for (const style of profile.expectedStyles) {
     const token = normalizeQualityStyleToken(style);
@@ -1325,8 +1760,20 @@ const runFoundryQualityAudit = async (params: {
       asNonEmptyString(entry.filename) ||
       (typeof entry.path === "string" ? path.basename(entry.path) : undefined) ||
       "";
-    const style = extractStyleFromValidationEntry(entry, isMonoLisa, profile.styleScope);
-    const styleToken = style ? normalizeQualityStyleToken(style) : "";
+
+    let style = extractStyleFromValidationEntry(entry, isMonoLisa, profile.styleScope);
+    let styleToken = style ? normalizeQualityStyleToken(style) : "";
+
+    // Fallback for protected webfonts whose name table is intentionally obfuscated.
+    const expectedFromFileName = resolveExpectedStyleFromFileName(fileName, expectedStyleMap);
+    if (expectedFromFileName) {
+      const styleLooksUnexpected = !styleToken || !expectedStyleMap.has(styleToken);
+      if (styleLooksUnexpected) {
+        styleToken = expectedFromFileName.token;
+        style = expectedFromFileName.label;
+      }
+    }
+
     if (!styleToken) continue;
     if (optionalExcludedStyleMap.has(styleToken)) {
       if (!optionalObservedStyleLabels.has(styleToken) && style) {
@@ -1860,8 +2307,9 @@ const runCssUrlDownload = async (request: CssUrlRequest): Promise<DownloadResult
   const family = request.family?.trim() || "unknown-family";
   const outputDir = makeJobFolder(request.outputFolder, request.metadata);
   const headers = buildHeaders(request);
+  const downloadRetryBudget = resolveDownloadRetryBudget(request, request.metadata);
 
-  await mkdir(outputDir, { recursive: true });
+  await prepareOutputDir(outputDir, Boolean(request.outputFolder && request.outputFolder.trim()));
 
   const cssText = await fetchText(cssUrl, headers);
   const fontUrls = parseCssFontUrls(cssText, cssUrl);
@@ -1875,7 +2323,7 @@ const runCssUrlDownload = async (request: CssUrlRequest): Promise<DownloadResult
     const ext = detectExtension(sourceUrl, request);
     const fileName = `${toSafeFileName(family)}-${String(i + 1).padStart(2, "0")}${ext}`;
     const filePath = path.join(outputDir, fileName);
-    await downloadBinary(sourceUrl, filePath, headers);
+    await downloadBinary(sourceUrl, filePath, headers, downloadRetryBudget);
     downloaded.push({
       fileName,
       filePath: toRelative(filePath),
@@ -1911,7 +2359,7 @@ const runApiJsonDownload = async (request: ApiJsonRequest): Promise<DownloadResu
   const nameField = request.nameField?.trim() || "name";
   const licenseField = request.licenseField?.trim() || "license";
 
-  await mkdir(outputDir, { recursive: true });
+  await prepareOutputDir(outputDir, Boolean(request.outputFolder && request.outputFolder.trim()));
 
   const payload = await fetchJson<unknown>(apiUrl, headers);
   const rawItems = pickByPath<unknown>(payload, itemsPath);
@@ -1977,7 +2425,8 @@ const runApiJsonDownload = async (request: ApiJsonRequest): Promise<DownloadResu
     }
 
     const filePath = joinOpaquePath(finalOutputDir, fileName);
-    await downloadBinary(sourceUrl, filePath, headers);
+    const downloadRetryBudget = resolveDownloadRetryBudget(request, request.metadata, record);
+    await downloadBinary(sourceUrl, filePath, headers, downloadRetryBudget);
 
     downloaded.push({
       name: fontName,
@@ -2033,7 +2482,7 @@ export const runDirectUrlDownload = async (request: DirectUrlRequest): Promise<D
   
   const headers = buildHeaders(request);
 
-  await mkdir(outputDir, { recursive: true });
+  await prepareOutputDir(outputDir, Boolean(request.outputFolder && request.outputFolder.trim()));
 
   const metadata = (request as any).metadata || {};
   const family = request.family?.trim() || metadata.family?.trim() || "unknown-font";
@@ -2066,7 +2515,8 @@ export const runDirectUrlDownload = async (request: DirectUrlRequest): Promise<D
   const filePath = path.join(outputDir, fileName);
 
   try {
-    await downloadBinary(fileUrl, filePath, headers);
+    const downloadRetryBudget = resolveDownloadRetryBudget(request, metadata);
+    await downloadBinary(fileUrl, filePath, headers, downloadRetryBudget);
   } catch (error) {
     // Best-effort cleanup if download fails.
     try {
@@ -2131,8 +2581,8 @@ export const runDirectUrlDownload = async (request: DirectUrlRequest): Promise<D
     }
   }
 
-  // Auto-convert WOFF2 to desktop/web variants (best-effort).
-  if (ext === '.woff2' && !shouldSkipConversion(metadata)) {
+  // Auto-convert variable/web fonts to desktop/web variants (best-effort).
+  if ((ext === ".woff2" || ext === ".woff" || ext === ".ttf" || ext === ".otf") && !shouldSkipConversion(metadata)) {
     try {
         const { convertToMultipleFormats } = await import("./font-converter");
         const subFamily = composeSubFamilyLabel(weight, style, metadata.styleName);
@@ -2143,51 +2593,136 @@ export const runDirectUrlDownload = async (request: DirectUrlRequest): Promise<D
           canApplyMetadataRepair(family, subFamily)
             ? { family, subFamily }
             : undefined;
+        const conversionOptions = {
+          disableInstanceExplosion: shouldDisableInstanceExplosion(metadata),
+          expectedInstanceCount: resolveExpectedInstanceCount(metadata)
+        };
         const conversions = await convertToMultipleFormats(
           filePath,
           conversionMetadata,
-          shouldDisableInstanceExplosion(metadata) ? { disableInstanceExplosion: true } : undefined
+          conversionOptions
         );
-        
-        if (conversions.ttf) {
-            const normalizedTtfPath = (await maybeRenameConvertedNonWebVariant(conversions.ttf)) || conversions.ttf;
+
+        const maybePushVariant = async (variantPath: string | null | undefined, suffix: string) => {
+          const normalizedVariantPath = await maybeRenameConvertedNonWebVariant(variantPath);
+          if (!normalizedVariantPath) return;
+          const variantFileName = path.basename(normalizedVariantPath);
+          if (downloaded.some((d) => d.fileName === variantFileName)) return;
+          downloaded.push({
+            fileName: variantFileName,
+            filePath: toRelative(normalizedVariantPath),
+            sourceUrl: fileUrl,
+            name: composeDisplayName(
+              family,
+              weight,
+              style,
+              category,
+              suffix,
+              metadata.styleName,
+              metadata.fullName
+            ),
+            license
+          });
+        };
+
+        await maybePushVariant(conversions.ttf, "TTF");
+        await maybePushVariant(conversions.otf, "OTF");
+        await maybePushVariant(conversions.woff, "WOFF");
+        await maybePushVariant(conversions.woff2, "WOFF2");
+
+        if (Array.isArray(conversions.instances)) {
+          for (const instancePath of conversions.instances) {
+            const normalizedInstancePath = await maybeRenameConvertedNonWebVariant(instancePath);
+            if (!normalizedInstancePath) continue;
+            const instanceFileName = path.basename(normalizedInstancePath);
+            if (downloaded.some((d) => d.fileName === instanceFileName)) continue;
+            const instanceStyle = extractGenericStyleFromFileName(instanceFileName) || "Regular";
             downloaded.push({
-                fileName: path.basename(normalizedTtfPath),
-                filePath: toRelative(normalizedTtfPath),
-                sourceUrl: fileUrl,
-                name: composeDisplayName(
-                  family,
-                  weight,
-                  style,
-                  category,
-                  "TTF",
-                  metadata.styleName,
-                  metadata.fullName
-                ),
-                license
+              fileName: instanceFileName,
+              filePath: toRelative(normalizedInstancePath),
+              sourceUrl: fileUrl,
+              name: composeDisplayName(
+                family,
+                weight,
+                style,
+                category,
+                "TTF",
+                instanceStyle,
+                `${family} ${instanceStyle}`
+              ),
+              license
             });
-        }
-        if (conversions.otf) {
-             const normalizedOtfPath = (await maybeRenameConvertedNonWebVariant(conversions.otf)) || conversions.otf;
-             downloaded.push({
-                fileName: path.basename(normalizedOtfPath),
-                filePath: toRelative(normalizedOtfPath),
-                sourceUrl: fileUrl,
-                name: composeDisplayName(
-                  family,
-                  weight,
-                  style,
-                  category,
-                  "OTF",
-                  metadata.styleName,
-                  metadata.fullName
-                ),
-                license
-            });
+          }
         }
     } catch {
       // keep raw output even if conversion fails
     }
+  }
+
+  let pureSuccessLogPath: string | undefined;
+  let pureSuccessAudit: Record<string, unknown> | undefined;
+  try {
+    const requiredFormats = resolvePureSuccessRequiredFormats(metadata);
+    const sourceLimitedFormats = resolvePureSuccessSourceLimitedFormats(metadata);
+    const pureSuccess = await runPureSuccessProtocol({
+      outputDir,
+      downloaded,
+      foundry: source,
+      family,
+      requiredFormats,
+      sourceLimitedFormats
+    });
+    pureSuccessAudit = pureSuccess as unknown as Record<string, unknown>;
+    const pureSuccessPath = path.join(outputDir, "pure-success-log.json");
+    await writeFile(pureSuccessPath, JSON.stringify(pureSuccess, null, 2), "utf8");
+    pureSuccessLogPath = toRelative(pureSuccessPath);
+  } catch {
+    // best-effort
+  }
+
+  let validationLogPath: string | undefined;
+  try {
+    const metadataFonts = Array.isArray((metadata as any).fonts) ? (metadata as any).fonts : [];
+    const validationTokenInputs: unknown[] = [
+      family,
+      source,
+      metadata.targetUrl,
+      metadata.pageUrl,
+      ...(metadataFonts || []).map((font: any) => (isRecord(font) ? font.family : undefined)),
+      ...(metadataFonts || []).map((font: any) =>
+        isRecord(font) && isRecord((font as any).metadata) ? (font as any).metadata.family : undefined
+      ),
+      ...(metadataFonts || []).map((font: any) =>
+        isRecord(font) && isRecord((font as any).metadata) ? (font as any).metadata.styleName : undefined
+      ),
+      ...(metadataFonts || []).map((font: any) =>
+        isRecord(font) && isRecord((font as any).metadata) ? (font as any).metadata.fullName : undefined
+      ),
+      ...(metadataFonts || []).map((font: any) =>
+        isRecord(font) && isRecord((font as any).metadata) ? (font as any).metadata.postscriptName : undefined
+      )
+    ];
+    const validationTokens = deriveValidationTokens(validationTokenInputs);
+    const validation = await runValidationLog({ outputDir, tokens: validationTokens });
+    validationLogPath = toRelative(validation.outputPath);
+  } catch {
+    // best-effort
+  }
+
+  let technicalQaLogPath: string | undefined;
+  let technicalQaAudit: Record<string, unknown> | undefined;
+  try {
+    const requiredFormats = resolvePureSuccessRequiredFormats(metadata);
+    const sourceLimitedFormats = resolvePureSuccessSourceLimitedFormats(metadata);
+    const technicalQa = await runTechnicalQa({
+      outputDir,
+      requiredFormats,
+      sourceLimitedFormats
+    });
+    technicalQaLogPath = toRelative(technicalQa.outputPath);
+    technicalQaAudit = technicalQa.audit;
+  } catch {
+    // best-effort
   }
 
   const logName = "download-log.json";
@@ -2211,9 +2746,20 @@ export const runDirectUrlDownload = async (request: DirectUrlRequest): Promise<D
         outputDir: toRelative(outputDir),
         downloadedAt: new Date().toISOString(),
         downloaded,
-        skipped: [] as SkippedItem[]
+        skipped: [] as SkippedItem[],
+        validationLogPath,
+        pureSuccessLogPath,
+        pureSuccessAudit,
+        technicalQaLogPath,
+        technicalQaAudit
       };
   }
+
+  resultCore.validationLogPath = resultCore.validationLogPath || validationLogPath;
+  resultCore.pureSuccessLogPath = resultCore.pureSuccessLogPath || pureSuccessLogPath;
+  resultCore.pureSuccessAudit = resultCore.pureSuccessAudit || pureSuccessAudit;
+  resultCore.technicalQaLogPath = resultCore.technicalQaLogPath || technicalQaLogPath;
+  resultCore.technicalQaAudit = resultCore.technicalQaAudit || technicalQaAudit;
 
   await writeFile(logPath, JSON.stringify(resultCore, null, 2));
 
@@ -2254,6 +2800,18 @@ export const runBatchDirectDownload = async (request: BatchDirectRequest): Promi
     (fontMeta as any).family ||
     primaryFont?.family;
 
+  const emit = (event: { type: "progress" | "log"; current?: number; total?: number; message?: string }) => {
+    if (!request.onProgress) return;
+    request.onProgress(event);
+  };
+  const emitLog = (message: string) => emit({ type: "log", message });
+  const emitProgress = (current: number, total: number) => emit({ type: "progress", current, total });
+
+  emitLog(
+    `[Batch Direct] start (foundry=${foundryHint || request.source || "unknown"}, family=${familyHint || "unknown"}, urls=${request.fonts.length})`
+  );
+  emitProgress(0, request.fonts.length);
+
   const primaryMetadata = {
     ...requestMeta,
     ...fontMeta,
@@ -2263,7 +2821,14 @@ export const runBatchDirectDownload = async (request: BatchDirectRequest): Promi
   };
   const outputDir = makeJobFolder(request.outputFolder, primaryMetadata);
   
-  await mkdir(outputDir, { recursive: true });
+  const deterministicRoot = request.outputFolder?.trim()
+    ? path.join(baseDownloadRoot, toSafeOutputFolderPath(request.outputFolder))
+    : undefined;
+  await prepareOutputDir(
+    outputDir,
+    Boolean(request.outputFolder && request.outputFolder.trim()),
+    deterministicRoot
+  );
   
   const downloaded: DownloadedFile[] = [];
   const skipped: SkippedItem[] = [];
@@ -2321,19 +2886,25 @@ export const runBatchDirectDownload = async (request: BatchDirectRequest): Promi
           }
         } catch {
           const safeFamily = toSafeFileName(font.family || "unknown");
-          const safeWeight = toSafeFileName(normalizeWeightLabel(font.weight || "Regular"));
-          const safeStyle = toSafeFileName(normalizeStyleLabel(font.style || "Normal"));
-          fileName = `${safeFamily}-${safeWeight}${safeStyle !== "normal" ? `-${safeStyle}` : ""}${ext}`;
+          const resolvedSubFamily = composeSubFamilyLabel(
+            font.weight || "Regular",
+            font.style || "Normal",
+            isRecord(font.metadata) ? font.metadata.styleName : undefined
+          );
+          const safeSubFamily = toSafeFileName(resolvedSubFamily || "Regular");
+          fileName = `${safeFamily}-${safeSubFamily}${ext}`;
         }
       }
 
-      const filePath = ensureUniqueFilePath(outputDir, fileName);
-      fileName = path.basename(filePath);
-      if (inlineAsset) {
-        await writeFile(filePath, inlineAsset.buffer);
-      } else {
-        await downloadBinary(fileUrl, filePath, perFontHeaders);
-      }
+       const filePath = ensureUniqueFilePath(outputDir, fileName);
+       fileName = path.basename(filePath);
+       emitLog(`[Batch Direct] downloading ${fileName}`);
+       if (inlineAsset) {
+         await writeFile(filePath, inlineAsset.buffer);
+       } else {
+         const downloadRetryBudget = resolveDownloadRetryBudget(request, request.metadata, font.metadata);
+         await downloadBinary(fileUrl, filePath, perFontHeaders, downloadRetryBudget);
+       }
       const fileBuffer = await readFile(filePath);
       const contentHash = crypto.createHash("sha256").update(fileBuffer).digest("hex");
       if (seenContentHashes.has(contentHash)) {
@@ -2420,10 +2991,14 @@ export const runBatchDirectDownload = async (request: BatchDirectRequest): Promi
             canApplyMetadataRepair(font.family, subFamily)
               ? { family: font.family, subFamily }
               : undefined;
+          const conversionOptions = {
+            disableInstanceExplosion: shouldDisableInstanceExplosion(font.metadata),
+            expectedInstanceCount: resolveExpectedInstanceCount(font.metadata)
+          };
           const conversions = await convertToMultipleFormats(
             filePath,
             conversionMetadata,
-            shouldDisableInstanceExplosion(font.metadata) ? { disableInstanceExplosion: true } : undefined
+            conversionOptions
           );
           
           const maybePushVariant = async (variantPath: string | null | undefined, suffix: string) => {
@@ -2451,11 +3026,45 @@ export const runBatchDirectDownload = async (request: BatchDirectRequest): Promi
           await maybePushVariant(conversions.otf, "OTF");
           await maybePushVariant(conversions.woff, "WOFF");
           await maybePushVariant(conversions.woff2, "WOFF2");
+          if (Array.isArray(conversions.instances)) {
+            for (const instancePath of conversions.instances) {
+              const normalizedInstancePath = await maybeRenameConvertedNonWebVariant(instancePath);
+              if (!normalizedInstancePath) continue;
+              const instanceFileName = path.basename(normalizedInstancePath);
+              if (downloaded.some((d) => d.fileName === instanceFileName)) continue;
+              const instanceStyle = extractGenericStyleFromFileName(instanceFileName) || "Regular";
+              downloaded.push({
+                fileName: instanceFileName,
+                filePath: toRelative(normalizedInstancePath),
+                sourceUrl: fileUrl,
+                name: composeDisplayName(
+                  font.family,
+                  font.weight,
+                  font.style,
+                  font.metadata?.category,
+                  "TTF",
+                  instanceStyle,
+                  `${font.family} ${instanceStyle}`
+                )
+              });
+            }
+          }
 
+          const resolvedRawPath = path.resolve(filePath);
+          const resolvedConvertedWoff2Path =
+            typeof conversions.woff2 === "string" ? path.resolve(conversions.woff2) : "";
+          const sameWoff2Path =
+            Boolean(resolvedConvertedWoff2Path) &&
+            (process.platform === "win32"
+              ? resolvedConvertedWoff2Path.toLowerCase() === resolvedRawPath.toLowerCase()
+              : resolvedConvertedWoff2Path === resolvedRawPath);
+          const rawExt = path.extname(filePath).toLowerCase();
           const repairedWoff2ReplacedRaw =
+            rawExt === ".woff2" &&
             Boolean(conversionMetadata) &&
-            typeof conversions.woff2 === "string" &&
-            path.resolve(conversions.woff2) !== path.resolve(filePath);
+            Boolean(resolvedConvertedWoff2Path) &&
+            !sameWoff2Path &&
+            fs.existsSync(resolvedConvertedWoff2Path);
           if (repairedWoff2ReplacedRaw) {
             const rawRelativePath = toRelative(filePath);
             const rawIndex = downloaded.findIndex((entry) => entry.filePath === rawRelativePath);
@@ -2469,7 +3078,42 @@ export const runBatchDirectDownload = async (request: BatchDirectRequest): Promi
     } catch (error: any) {
       console.error(`[BATCH] Failed item ${i}:`, error.message);
       skipped.push({ index: i, reason: error.message, name: font.family });
+    } finally {
+      emitProgress(i + 1, request.fonts.length);
     }
+  }
+
+  let pureSuccessLogPath: string | undefined;
+  let pureSuccessAudit: Record<string, unknown> | undefined;
+  try {
+    emitLog("[Pure Success] running self-heal protocol...");
+    const requiredFormats = resolvePureSuccessRequiredFormats(
+      requestMeta,
+      fontMeta,
+      ...(request.fonts || []).map((font) => (isRecord(font.metadata) ? font.metadata : undefined))
+    );
+    const sourceLimitedFormats = resolvePureSuccessSourceLimitedFormats(
+      requestMeta,
+      fontMeta,
+      ...(request.fonts || []).map((font) => (isRecord(font.metadata) ? font.metadata : undefined))
+    );
+    const pureSuccess = await runPureSuccessProtocol({
+      outputDir,
+      downloaded,
+      foundry: foundryHint || request.source,
+      family: familyHint,
+      requiredFormats,
+      sourceLimitedFormats
+    });
+    pureSuccessAudit = pureSuccess as unknown as Record<string, unknown>;
+    const pureSuccessPath = path.join(outputDir, "pure-success-log.json");
+    await writeFile(pureSuccessPath, JSON.stringify(pureSuccess, null, 2), "utf8");
+    pureSuccessLogPath = toRelative(pureSuccessPath);
+    emitLog(
+      `[Pure Success] status=${pureSuccess.status} missing_before=${pureSuccess.missingFormatsBefore.length} missing_after=${pureSuccess.missingFormatsAfter.length}`
+    );
+  } catch {
+    // best-effort
   }
   
   let validationLogPath: string | undefined;
@@ -2477,6 +3121,8 @@ export const runBatchDirectDownload = async (request: BatchDirectRequest): Promi
   let targetAudit: Record<string, unknown> | undefined;
   let qualityLogPath: string | undefined;
   let qualityAudit: Record<string, unknown> | undefined;
+  let technicalQaLogPath: string | undefined;
+  let technicalQaAudit: Record<string, unknown> | undefined;
   try {
     const validationTokenInputs: unknown[] = [
       familyHint,
@@ -2488,11 +3134,43 @@ export const runBatchDirectDownload = async (request: BatchDirectRequest): Promi
       ...(request.fonts || []).map((f) => f.family),
       ...(request.fonts || []).map((f) =>
         isRecord(f.metadata) ? f.metadata.family : undefined
+      ),
+      ...(request.fonts || []).map((f) =>
+        isRecord(f.metadata) ? (f.metadata as any).styleName : undefined
+      ),
+      ...(request.fonts || []).map((f) =>
+        isRecord(f.metadata) ? (f.metadata as any).fullName : undefined
+      ),
+      ...(request.fonts || []).map((f) =>
+        isRecord(f.metadata) ? (f.metadata as any).postscriptName : undefined
       )
     ];
     const validationTokens = deriveValidationTokens(validationTokenInputs);
     const validation = await runValidationLog({ outputDir, tokens: validationTokens });
     validationLogPath = toRelative(validation.outputPath);
+  } catch {
+    // best-effort
+  }
+
+  try {
+    emitLog("[Audit] Running technical QA...");
+    const requiredFormats = resolvePureSuccessRequiredFormats(
+      requestMeta,
+      fontMeta,
+      ...(request.fonts || []).map((font) => (isRecord(font.metadata) ? font.metadata : undefined))
+    );
+    const sourceLimitedFormats = resolvePureSuccessSourceLimitedFormats(
+      requestMeta,
+      fontMeta,
+      ...(request.fonts || []).map((font) => (isRecord(font.metadata) ? font.metadata : undefined))
+    );
+    const technicalQa = await runTechnicalQa({
+      outputDir,
+      requiredFormats,
+      sourceLimitedFormats
+    });
+    technicalQaLogPath = toRelative(technicalQa.outputPath);
+    technicalQaAudit = technicalQa.audit;
   } catch {
     // best-effort
   }
@@ -2561,19 +3239,41 @@ export const runBatchDirectDownload = async (request: BatchDirectRequest): Promi
         } catch {
           host = "";
         }
-        const expectedStyles = Array.from(
-          new Set(
-            (request.fonts || [])
-              .map((font) =>
-                composeSubFamilyLabel(
-                  font.weight || "Regular",
-                  font.style || "Normal",
-                  isRecord(font.metadata) ? font.metadata.styleName : undefined
+        const profileExpectedStyles = (() => {
+          const styles = new Set<string>();
+          const addMany = (value: unknown) => {
+            if (!Array.isArray(value)) return;
+            for (const item of value) {
+              if (typeof item !== "string") continue;
+              const trimmed = item.trim();
+              if (trimmed) styles.add(trimmed);
+            }
+          };
+
+          if (isRecord(requestMeta?.targetProfile)) addMany((requestMeta as any).targetProfile.expectedStyles);
+          if (isRecord(fontMeta?.targetProfile)) addMany((fontMeta as any).targetProfile.expectedStyles);
+          for (const font of request.fonts || []) {
+            if (isRecord(font.metadata?.targetProfile)) addMany(font.metadata.targetProfile.expectedStyles);
+          }
+          return Array.from(styles);
+        })();
+
+        const expectedStyles =
+          profileExpectedStyles.length > 0
+            ? profileExpectedStyles
+            : Array.from(
+                new Set(
+                  (request.fonts || [])
+                    .map((font) =>
+                      composeSubFamilyLabel(
+                        font.weight || "Regular",
+                        font.style || "Normal",
+                        isRecord(font.metadata) ? font.metadata.styleName : undefined
+                      )
+                    )
+                    .filter((style) => typeof style === "string" && style.trim().length > 0)
                 )
-              )
-              .filter((style) => typeof style === "string" && style.trim().length > 0)
-          )
-        );
+              );
         const auditRequest = {
           mode: "browser-intercept",
           targetUrl,
@@ -2610,6 +3310,13 @@ export const runBatchDirectDownload = async (request: BatchDirectRequest): Promi
     // best-effort
   }
 
+  // Organise font files into Berkeley-Mono-style format subfolders before ZIP packaging.
+  try {
+    await organizeOutputByFormat(outputDir);
+  } catch {
+    // best-effort — never fail a download because of organisation
+  }
+
   // Keep absolute outputDir for ZIP packaging.
   const result: DownloadResult = {
     command: "batch-direct",
@@ -2625,13 +3332,25 @@ export const runBatchDirectDownload = async (request: BatchDirectRequest): Promi
     qualityLogPath,
     qualityAudit,
     specimenLogPath,
-    specimenAudit
+    specimenAudit,
+    pureSuccessLogPath,
+    pureSuccessAudit,
+    technicalQaLogPath,
+    technicalQaAudit
   };
   
   await writeFile(path.join(outputDir, "download-log.json"), JSON.stringify(result, null, 2));
+  emitLog(`[Batch Direct] complete (downloaded=${downloaded.length}, skipped=${skipped.length})`);
   return result;
 };
 
+const getHostFromUrl = (value: string): string => {
+  try {
+    return new URL(value).host.toLowerCase();
+  } catch {
+    return "";
+  }
+};
 
 export const runDownload = async (request: DownloadRequest): Promise<DownloadResult> => {
   if (request.mode === "css-url") {
@@ -2647,13 +3366,84 @@ export const runDownload = async (request: DownloadRequest): Promise<DownloadRes
   }
 
   if (request.mode === "browser-intercept") {
+    const emitLog = (message: string) => {
+      if (typeof request.onProgress !== "function") return;
+      request.onProgress({ type: "log", message });
+    };
     const directFonts = extractDirectFontsFromBrowserRequest(request);
-    if (directFonts.length > 0) {
+    const hasInterceptPlaceholder = (() => {
+      if (!isRecord(request.metadata)) return false;
+      const rawFonts = Array.isArray((request.metadata as any).fonts) ? (request.metadata as any).fonts : [];
+      return rawFonts.some((raw: unknown) => isRecord(raw) && isInterceptPlaceholderUrl((raw as any).url));
+    })();
+    const host = getHostFromUrl(request.targetUrl);
+    const shouldPreferDirect = /(^|\.)abcdinamo\.com$/i.test(host);
+    const allowBatchDirect = directFonts.length > 0 && (!hasInterceptPlaceholder || shouldPreferDirect);
+    const runIntercept = async (): Promise<DownloadResult> =>
+      runBrowserIntercept({
+        targetUrl: request.targetUrl,
+        outputFolder: request.outputFolder,
+        expectedCount: request.expectedCount,
+        injectScript: request.injectScript,
+        masterFoundry: (request as any).masterFoundry, // Forward the flag
+        metadata: request.metadata,
+        mode: "browser-intercept",
+        onProgress: request.onProgress
+      });
+
+    const runFreshBatchRetry = async (): Promise<DownloadResult | undefined> => {
+      const host = getHostFromUrl(request.targetUrl);
+      if (!host.includes("typefaces.pizza")) return undefined;
+
+      try {
+        const { scrapers } = await import("@/lib/scrapers");
+        const scraper = scrapers.find((item) => item.canHandle(request.targetUrl));
+        if (!scraper) return undefined;
+
+        const refreshed = await scraper.scrape(request.targetUrl);
+        const refreshedTargetUrl = refreshed.targetUrl || request.targetUrl;
+        const refreshedMetadata = {
+          ...(isRecord(request.metadata) ? request.metadata : {}),
+          ...(isRecord(refreshed.metadata) ? refreshed.metadata : {}),
+          targetUrl: refreshedTargetUrl,
+          fonts: refreshed.fonts
+        };
+        const refreshedDirectFonts = extractDirectFontsFromBrowserRequest({
+          ...request,
+          mode: "browser-intercept",
+          targetUrl: refreshedTargetUrl,
+          metadata: refreshedMetadata
+        } as BrowserInterceptLikeRequest);
+
+        if (refreshedDirectFonts.length === 0) return undefined;
+
+        console.warn(
+          `[Protocol Switch] retrying batch-direct with fresh scraper payload (target=${refreshedTargetUrl}, direct=${refreshedDirectFonts.length}).`
+        );
+        return runBatchDirectDownload({
+          mode: "batch-direct",
+          fonts: refreshedDirectFonts,
+          source: request.source?.trim() || new URL(refreshedTargetUrl).host,
+          outputFolder: request.outputFolder,
+          metadata: refreshedMetadata,
+          licenseId: request.licenseId,
+          licenseProof: request.licenseProof,
+          onProgress: request.onProgress
+        });
+      } catch (error) {
+        const reason = error instanceof Error ? error.message : String(error);
+        console.warn("[Protocol Switch] fresh-scrape batch retry failed (" + reason + ").");
+        return undefined;
+      }
+    };
+
+    if (directFonts.length > 0 && allowBatchDirect) {
       const source = request.source?.trim() || new URL(request.targetUrl).host;
+      emitLog(`[Protocol] direct URLs detected (${directFonts.length}). attempting batch-direct.`);
       console.log(
         `[Protocol Switch] browser-intercept -> batch-direct (${directFonts.length} direct URLs detected, target=${request.targetUrl})`
       );
-      return runBatchDirectDownload({
+      const batchRequest: BatchDirectRequest = {
         mode: "batch-direct",
         fonts: directFonts,
         source,
@@ -2661,20 +3451,59 @@ export const runDownload = async (request: DownloadRequest): Promise<DownloadRes
         metadata: {
           ...(isRecord(request.metadata) ? request.metadata : {}),
           targetUrl: request.targetUrl
+        },
+        licenseId: request.licenseId,
+        licenseProof: request.licenseProof,
+        onProgress: request.onProgress
+      };
+
+      try {
+        const batchResult = await runBatchDirectDownload(batchRequest);
+        if (
+          shouldFallbackToBrowserIntercept({
+            targetUrl: request.targetUrl,
+            directFonts,
+            batchResult
+          })
+        ) {
+          const refreshed = await runFreshBatchRetry();
+          if (refreshed) return refreshed;
+
+          console.warn(
+            `[Protocol Switch] batch-direct had fetch-like skips, falling back to browser-intercept (target=${request.targetUrl}).`
+          );
+          emitLog(`[Protocol] batch-direct had fetch-like skips. falling back to browser-intercept.`);
+          return runIntercept();
         }
-      });
+        return batchResult;
+      } catch (error) {
+        const reason = error instanceof Error ? error.message : String(error);
+        const shouldFallback = shouldFallbackAfterBatchDirectError({
+          targetUrl: request.targetUrl,
+          directFonts,
+          errorReason: reason
+        });
+
+        if (!shouldFallback) throw error;
+
+        const refreshed = await runFreshBatchRetry();
+        if (refreshed) return refreshed;
+
+        console.warn(
+          `[Protocol Switch] batch-direct failed (${reason}). Falling back to browser-intercept (target=${request.targetUrl}).`
+        );
+        emitLog(`[Protocol] batch-direct failed (${reason}). falling back to browser-intercept.`);
+        return runIntercept();
+      }
     }
 
-    return await runBrowserIntercept({
-      targetUrl: request.targetUrl,
-      outputFolder: request.outputFolder,
-      expectedCount: request.expectedCount,
-      injectScript: request.injectScript,
-      masterFoundry: (request as any).masterFoundry, // Forward the flag
-      metadata: request.metadata,
-      mode: "browser-intercept",
-      onProgress: request.onProgress
-    });
+    if (directFonts.length > 0 && hasInterceptPlaceholder && !shouldPreferDirect) {
+      emitLog(
+        `[Protocol] direct URLs present (${directFonts.length}) but placeholders detected. staying in browser-intercept for completeness.`
+      );
+    }
+
+    return await runIntercept();
   }
 
   if (request.mode === "batch-direct") {
@@ -2711,4 +3540,10 @@ export const runDownload = async (request: DownloadRequest): Promise<DownloadRes
 
   throw new Error("Unsupported download mode.");
 };
+
+
+
+
+
+
 

@@ -1,4 +1,4 @@
-﻿#!/usr/bin/env python3
+#!/usr/bin/env python3
 """
 Convert font files to multiple formats and optionally explode variable-font instances.
 
@@ -15,8 +15,10 @@ Expected JSON stdout schema:
 import argparse
 import sys
 import json
+import os
 import re
 from pathlib import Path
+from concurrent.futures import ProcessPoolExecutor
 from typing import Dict, List, Optional
 
 try:
@@ -25,6 +27,27 @@ try:
 except Exception:
     print("ERROR: fontTools not installed. Run: pip install fonttools brotli", file=sys.stderr)
     raise SystemExit(1)
+
+
+WEIGHT_NAME_TO_CLASS = [
+    ("hairline", 100),
+    ("thin", 100),
+    ("ultralight", 200),
+    ("extralight", 200),
+    ("light", 300),
+    ("book", 400),
+    ("regular", 400),
+    ("roman", 400),
+    ("normal", 400),
+    ("medium", 500),
+    ("demibold", 600),
+    ("semibold", 600),
+    ("extrabold", 800),
+    ("ultrabold", 800),
+    ("bold", 700),
+    ("black", 900),
+    ("heavy", 900),
+]
 
 
 def _safe_token(value: str) -> str:
@@ -38,6 +61,60 @@ def _set_record_text(record, text: str) -> None:
         record.string = text.encode(enc, errors="ignore")
     except Exception:
         pass
+
+
+def _set_name_id_text(name_table, name_id: int, text: str) -> None:
+    updated = False
+    for rec in name_table.names:
+        if rec.nameID != name_id:
+            continue
+        _set_record_text(rec, text)
+        updated = True
+    if not updated:
+        try:
+            name_table.setName(text, name_id, 3, 1, 0x409)
+        except Exception:
+            pass
+
+
+def _default_weight_axis(font: TTFont) -> Optional[float]:
+    if "fvar" not in font:
+        return None
+    try:
+        for axis in font["fvar"].axes:
+            if axis.axisTag == "wght":
+                return float(axis.defaultValue)
+    except Exception:
+        return None
+    return None
+
+
+def _clamp_weight_class(value: float) -> int:
+    return max(1, min(1000, int(round(value))))
+
+
+def _infer_weight_class(font: TTFont, subfamily: str) -> Optional[int]:
+    compact = re.sub(r"[^a-z0-9]+", "", re.sub(r"\b(italic|oblique)\b", "", (subfamily or "").lower())).strip()
+    default_weight = _default_weight_axis(font)
+
+    if compact in {"variable", "vf"}:
+        if default_weight is not None:
+            return _clamp_weight_class(default_weight)
+        return 400
+
+    for token, weight_class in WEIGHT_NAME_TO_CLASS:
+        if token in compact:
+            return weight_class
+
+    if default_weight is not None and compact:
+        return _clamp_weight_class(default_weight)
+
+    if "OS/2" in font and hasattr(font["OS/2"], "usWeightClass"):
+        try:
+            return int(font["OS/2"].usWeightClass)
+        except Exception:
+            return None
+    return None
 
 
 def _patch_name_table(font: TTFont, family: Optional[str], subfamily: Optional[str]) -> None:
@@ -105,8 +182,28 @@ def _patch_name_table(font: TTFont, family: Optional[str], subfamily: Optional[s
     else:
         name_table.setName(unique_name, 3, 3, 1, 0x409)
 
-    if "OS/2" in font and hasattr(font["OS/2"], "fsType"):
-        font["OS/2"].fsType = 0
+    if "fvar" in font:
+        for instance in font["fvar"].instances:
+            style_name = _normalize_instance_style_name(font, instance)
+            subfamily_name_id = getattr(instance, "subfamilyNameID", 0xFFFF)
+            postscript_name_id = getattr(instance, "postscriptNameID", 0xFFFF)
+
+            if isinstance(subfamily_name_id, int) and subfamily_name_id not in {0xFFFF, 2, 17}:
+                _set_name_id_text(name_table, subfamily_name_id, style_name)
+
+            if isinstance(postscript_name_id, int) and postscript_name_id not in {0xFFFF, 6}:
+                _set_name_id_text(
+                    name_table,
+                    postscript_name_id,
+                    f"{_safe_token(current_family)}-{_safe_token(style_name)}",
+                )
+
+    if "OS/2" in font:
+        expected_weight_class = _infer_weight_class(font, current_subfamily)
+        if expected_weight_class is not None and hasattr(font["OS/2"], "usWeightClass"):
+            font["OS/2"].usWeightClass = expected_weight_class
+        if hasattr(font["OS/2"], "fsType"):
+            font["OS/2"].fsType = 0
 
 
 def _read_sfnt_signature(font_path: Path) -> str:
@@ -236,6 +333,13 @@ def _normalize_instance_style_name(font: TTFont, instance) -> str:
         weight_value = None
 
     is_italic_source = _font_is_italic_source(font)
+    ital_value = None
+    try:
+        if "ital" in instance.coordinates:
+            ital_value = float(instance.coordinates["ital"])
+    except Exception:
+        ital_value = None
+    is_italic_instance = ital_value is not None and ital_value >= 0.5
     lower = raw_name.lower()
     looks_like_placeholder = lower in {
         "",
@@ -258,19 +362,49 @@ def _normalize_instance_style_name(font: TTFont, instance) -> str:
     elif normalized_style in {"variable italic", "variable oblique"}:
         style_name = "Regular Italic"
 
-    # Normalize regular aliases.
-    if style_name.lower() in {"regular", "roman", "book", "normal", "variable"}:
+    # Normalize only true regular aliases. Keep "Book" as a first-class style.
+    if style_name.lower() in {"regular", "roman", "normal", "variable"}:
         style_name = "Regular"
 
     if is_italic_source:
         if "italic" not in style_name.lower():
             style_name = f"{style_name} Italic"
+    elif is_italic_instance:
+        if "italic" not in style_name.lower():
+            style_name = f"{style_name} Italic"
     else:
-        # Keep upright instances upright even if a placeholder leaks "Italic".
+        # Keep upright instances upright if placeholder labels leak "Italic"
+        # while the current instance does not activate italic axis.
         style_name = re.sub(r"\s+italic\b", "", style_name, flags=re.IGNORECASE)
 
     style_name = re.sub(r"\s+", " ", style_name).strip()
     return style_name or "Regular"
+
+
+_WORKER_FONT_CACHE: Dict[str, TTFont] = {}
+
+
+def _get_worker_font(input_path: str) -> TTFont:
+    cached = _WORKER_FONT_CACHE.get(input_path)
+    if cached is not None:
+        return cached
+
+    loaded = TTFont(input_path, recalcTimestamp=False)
+    _WORKER_FONT_CACHE[input_path] = loaded
+    return loaded
+
+
+def _save_instance_job(job):
+    input_path, family_name, style_name, coordinates, out_path = job
+    base_font = _get_worker_font(str(input_path))
+    static_font = instantiateVariableFont(base_font, coordinates, inplace=False)
+    _patch_name_table(static_font, family_name, style_name)
+    static_font.flavor = None
+    target = Path(out_path)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    static_font.save(str(target))
+    static_font.close()
+    return str(target)
 
 
 def _explode_instances(font: TTFont, output_hint: str, family_hint: Optional[str]) -> List[str]:
@@ -282,36 +416,44 @@ def _explode_instances(font: TTFont, output_hint: str, family_hint: Optional[str
     family_name = family_hint or font["name"].getDebugName(16) or font["name"].getDebugName(1) or "Font"
     family_token = _safe_token(family_name)
 
-    instances: List[str] = []
-    seen = set()
+    # Preserve sfnt signature compatibility: CFF/CFF2-based instances should use .otf extension.
+    instance_ext = "otf" if ("CFF " in font or "CFF2" in font) else "ttf"
 
+    jobs = []
+    seen_paths = set()
     for inst in font["fvar"].instances:
         style_name = _instance_style_name(font, inst)
         style_token = _safe_token(style_name)
-        static_font = instantiateVariableFont(font, inst.coordinates, inplace=False)
-        _patch_name_table(static_font, family_name, style_name)
-        static_font.flavor = None
-
-        # Preserve sfnt signature compatibility: CFF/CFF2-based instances should use .otf extension.
-        instance_ext = "otf" if ("CFF " in static_font or "CFF2" in static_font) else "ttf"
-        file_name = f"{family_token}-{style_token}.{instance_ext}"
-        out_path = output_dir / file_name
+        out_path = output_dir / f"{family_token}-{style_token}.{instance_ext}"
 
         # Deduplicate only within this conversion run.
         # Existing files from previous runs should be overwritten to keep deterministic names.
         n = 1
-        while str(out_path) in seen:
+        while str(out_path) in seen_paths:
             out_path = output_dir / f"{family_token}-{style_token}-{n}.{instance_ext}"
             n += 1
 
-        out_path.parent.mkdir(parents=True, exist_ok=True)
-        static_font.save(str(out_path))
-        static_font.close()
+        seen_paths.add(str(out_path))
+        coordinates = {tag: float(value) for tag, value in dict(inst.coordinates).items()}
+        jobs.append((str(base_output), family_name, style_name, coordinates, str(out_path)))
 
-        instances.append(str(out_path))
-        seen.add(str(out_path))
+    if not jobs:
+        return []
 
-    return instances
+    instance_count = len(jobs)
+    cpu_count = max(1, os.cpu_count() or 1)
+    worker_count = min(6, max(2, cpu_count // 2))
+    use_parallel = instance_count >= 24 and worker_count > 1
+
+    if use_parallel:
+        try:
+            with ProcessPoolExecutor(max_workers=worker_count) as executor:
+                return list(executor.map(_save_instance_job, jobs))
+        except Exception:
+            # Fallback to sequential path if multiprocessing is unavailable in runtime.
+            pass
+
+    return [_save_instance_job(job) for job in jobs]
 
 
 def main() -> None:
@@ -369,3 +511,4 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+

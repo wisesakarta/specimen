@@ -1,4 +1,4 @@
-import type { FontMetadata, ScrapeResult, Scraper } from "./types";
+import type { FontMetadata, ScrapeResult, Scraper } from "./scraper-protocol";
 
 const NARROWTYPE_HOST = "narrowtype.com";
 const NARROWTYPE_ORIGIN = "https://narrowtype.com";
@@ -589,6 +589,80 @@ const buildFallbackInjectScript = (): string => `
   })();
 `;
 
+const buildNarrowTypeFallbackResult = (rawUrl: string, reason: unknown): ScrapeResult => {
+  const normalizedInput = normalizeTargetUrl(rawUrl);
+  const slug = extractSlugFromUrl(normalizedInput) || "narrow-type";
+  const familyName = slug
+    .split(/[-_]+/g)
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ") || "Narrow Type";
+  const expectedAssetTokens = Array.from(
+    new Set(
+      [slug, familyName, `nt${slug}`]
+        .map((value) => normalizeToken(String(value || "")))
+        .filter((value) => value.length >= 4)
+    )
+  );
+  const targetProfile = {
+    profileId: "narrowtype-target-profile-fallback-v1",
+    source: "narrowtype-browser-intercept-fallback",
+    foundry: "Narrow Type",
+    styleScope: "family-style",
+    strictMissingStyles: false,
+    targetUrl: buildFontPageUrl(slug),
+    family: familyName,
+    familyDisplay: familyName,
+    familySlug: slug,
+    expectedStyles: [],
+    expectedStyleCount: 0,
+    expectedAssetTokens,
+    requiredFeatureTags: [],
+    outputNaming: {
+      prefix: "narrow-type",
+      pattern: "narrow-type-{family-slug}-{style-slug}.{ext}",
+      separator: "-",
+      styleTokenCase: "lowercase"
+    }
+  };
+
+  return {
+    scraperName: NarrowTypeScraper.name,
+    foundryName: "Narrow Type",
+    fonts: [
+      {
+        url: "browser-intercept",
+        family: familyName,
+        format: "woff2",
+        style: "Normal",
+        weight: "Regular",
+        downloadable: true,
+        metadata: {
+          foundry: "Narrow Type",
+          family: familyName,
+          pageUrl: buildFontPageUrl(slug),
+          targetUrl: buildFontPageUrl(slug),
+          targetProfile,
+          fallbackReason: reason instanceof Error ? reason.message : String(reason)
+        }
+      }
+    ],
+    originalUrl: rawUrl,
+    targetUrl: buildFontPageUrl(slug),
+    injectScript: buildFallbackInjectScript(),
+    expectedCount: 1,
+    metadata: {
+      foundry: "Narrow Type",
+      family: familyName,
+      slug,
+      fallbackMode: "browser-intercept",
+      targetProfile,
+      requiredFeatureTags: [],
+      fallbackReason: reason instanceof Error ? reason.message : String(reason)
+    }
+  };
+};
+
 export const NarrowTypeScraper: Scraper = {
   id: "narrowtype",
   name: "Narrow Type Precision Scraper",
@@ -742,13 +816,7 @@ export const NarrowTypeScraper: Scraper = {
       };
     } catch (error) {
       console.error("[NarrowTypeScraper] Error:", error);
-      return {
-        scraperName: this.name,
-        foundryName: "Narrow Type",
-        fonts: [],
-        originalUrl: url
-      };
+      return buildNarrowTypeFallbackResult(url, error);
     }
   }
 };
-

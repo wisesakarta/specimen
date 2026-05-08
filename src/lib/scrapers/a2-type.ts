@@ -1,4 +1,4 @@
-import type { FontMetadata, ScrapeResult, Scraper } from "./types";
+import type { FontMetadata, ScrapeResult, Scraper } from "./scraper-protocol";
 
 const BROWSER_UA =
   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36";
@@ -213,7 +213,7 @@ const buildA2ProvocationScript = (familyName: string): string => `
 
     window.__specimen_extraction_complete = true;
 
-    window.__saka_extraction_complete = true;
+    window.__specimen_extraction_complete = true;
   })();
 `;
 
@@ -269,7 +269,7 @@ export const A2TypeScraper: Scraper = {
             style: "Normal",
             weight: "Regular",
             downloadable: true,
-            note: "Capturing via Saka Engine.",
+            note: "Capturing via Specimen Engine.",
             metadata: {
               pageUrl: targetUrl,
               foundry: "A2-TYPE",

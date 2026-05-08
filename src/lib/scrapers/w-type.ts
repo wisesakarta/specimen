@@ -1,4 +1,4 @@
-import { FontMetadata, ScrapeResult, Scraper } from "./types";
+import { FontMetadata, ScrapeResult, Scraper } from "./scraper-protocol";
 
 const BROWSER_UA =
   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36";
@@ -12,11 +12,18 @@ const formatPriority: Record<FontMetadata["format"], number> = {
   zip: 0
 };
 
+const WTYPE_WIDTH_PREFIXES = [
+  ["compressed", "Compressed"],
+  ["condensed", "Condensed"],
+  ["expanded", "Expanded"],
+  ["wide", "Wide"]
+] as const;
+
 const toTitle = (value: string): string =>
   value
     .split("-")
     .filter(Boolean)
-    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .map((part) => (part.length <= 3 ? part.toUpperCase() : part.charAt(0).toUpperCase() + part.slice(1)))
     .join(" ") || "W Type Font";
 
 const normalizeTargetUrl = (rawUrl: string): URL => {
@@ -46,14 +53,11 @@ const detectFormat = (value: string): FontMetadata["format"] => {
   return "ttf";
 };
 
-const detectStyle = (value: string): "normal" | "italic" =>
-  /italic/i.test(value) ? "italic" : "normal";
-
 const detectWeight = (value: string): number => {
   const lower = value.toLowerCase();
   if (/thin/.test(lower)) return 100;
   if (/ultralight|extra-?light/.test(lower)) return 200;
-  if (/normal|light/.test(lower)) return 300;
+  if (/light/.test(lower)) return 300;
   if (/regular|roman/.test(lower)) return 400;
   if (/medium/.test(lower)) return 500;
   if (/semi-?bold|demi-?bold/.test(lower)) return 600;
@@ -63,25 +67,82 @@ const detectWeight = (value: string): number => {
   return 400;
 };
 
-const parseFontFaceCss = (cssText: string, cssUrl: string): FontMetadata[] => {
+const extractPdfLinks = (html: string, pageUrl: string): string[] => {
+  const hits = new Set<string>();
+  for (const match of html.matchAll(/(?:https?:\/\/|\/\/|\/)[^"'<>\\\s]+?\.pdf(?:\?[^"'<>\\\s]*)?/gi)) {
+    const raw = String(match[0] || "").replace(/\\\//g, "/").trim();
+    if (!raw) continue;
+    try {
+      const resolved = /^https?:\/\//i.test(raw)
+        ? new URL(raw)
+        : raw.startsWith("//")
+          ? new URL(`https:${raw}`)
+          : new URL(raw, pageUrl);
+      hits.add(resolved.href);
+    } catch {
+      // best effort
+    }
+  }
+  return Array.from(hits);
+};
+
+const buildWTypeStyleDescriptor = (
+  assetUrl: string,
+  familyName: string
+): { styleName: string; fullName: string; style: "normal" | "italic"; weight: number } => {
+  const fileName = decodeURIComponent(new URL(assetUrl).pathname.split("/").pop() || "");
+  const stem = fileName.replace(/\.(woff2?|ttf|otf)$/i, "");
+  let token = stem.toLowerCase().replace(/^wtfforma[-_]?/i, "");
+  let widthLabel = "";
+
+  for (const [prefix, label] of WTYPE_WIDTH_PREFIXES) {
+    if (!token.startsWith(prefix)) continue;
+    widthLabel = label;
+    token = token.slice(prefix.length);
+    break;
+  }
+
+  const italic = token.endsWith("italic");
+  if (italic) token = token.slice(0, -6);
+
+  let weightLabel = "Regular";
+  if (token === "thin") weightLabel = "Thin";
+  else if (token === "light") weightLabel = "Light";
+  else if (token === "regular") weightLabel = "Regular";
+  else if (token === "medium") weightLabel = "Medium";
+  else if (token === "bold") weightLabel = "Bold";
+  else if (token === "heavy") weightLabel = "Heavy";
+
+  let styleName = [widthLabel, weightLabel].filter(Boolean).join(" ").trim() || "Regular";
+  if (italic) {
+    if (styleName === "Regular") styleName = "Italic";
+    else if (styleName.endsWith(" Regular")) styleName = styleName.replace(/ Regular$/i, " Italic");
+    else styleName = `${styleName} Italic`;
+  }
+
+  return {
+    styleName,
+    fullName: `${familyName} ${styleName}`.replace(/\s+/g, " ").trim(),
+    style: italic ? "italic" : "normal",
+    weight: detectWeight(styleName)
+  };
+};
+
+const parseFontFaceCss = (
+  cssText: string,
+  cssUrl: string,
+  pageUrl: string,
+  familyName: string,
+  specimenPdfUrls: string[]
+): FontMetadata[] => {
   const fonts: FontMetadata[] = [];
   const blocks = cssText.split(/@font-face\s*\{/gi).slice(1);
   const deduped = new Map<string, FontMetadata>();
 
   for (const blockRaw of blocks) {
     const block = blockRaw.split("}")[0] || blockRaw;
-    const familyMatch = block.match(/font-family:\s*['"]?([^;'"]+)['"]?/i);
+    const familyMatch = block.match(/font-family:\s*['"]?([^;'"\n]+)['"]?/i);
     if (!familyMatch) continue;
-
-    const family = familyMatch[1].trim();
-    const style = (block.match(/font-style:\s*(normal|italic)/i)?.[1] || "normal").toLowerCase();
-    const weightText = block.match(/font-weight:\s*(\d{2,3}|normal|bold)/i)?.[1] || "400";
-    const weight =
-      weightText === "normal"
-        ? 400
-        : weightText === "bold"
-          ? 700
-          : Number(weightText) || 400;
 
     const srcParts = [...block.matchAll(/url\(\s*['"]?([^'")]+)['"]?\s*\)\s*format\(\s*['"]?([^'")]+)['"]?\s*\)/gi)];
     if (srcParts.length === 0) continue;
@@ -103,17 +164,25 @@ const parseFontFaceCss = (cssText: string, cssUrl: string): FontMetadata[] => {
     }
 
     if (!bestUrl) continue;
-
-    const key = `${family.toLowerCase()}|${weight}|${style}`;
+    const descriptor = buildWTypeStyleDescriptor(bestUrl, familyName);
+    const key = `${descriptor.styleName.toLowerCase()}|${bestUrl.toLowerCase()}`;
     deduped.set(key, {
       url: bestUrl,
-      family,
+      family: familyName,
       format: bestFormat,
-      style: style as "normal" | "italic",
-      weight,
+      style: descriptor.style,
+      weight: descriptor.weight,
       downloadable: true,
       note: "Parsed from W Type fontface.css",
-      metadata: { pageUrl: cssUrl, foundry: "W Type Foundry", family }
+      metadata: {
+        pageUrl,
+        foundry: "W Type Foundry",
+        family: familyName,
+        styleName: descriptor.styleName,
+        fullName: descriptor.fullName,
+        specimenPdfUrls,
+        forceMetadataRepair: true
+      }
     });
   }
 
@@ -131,24 +200,36 @@ const parseFontFaceCss = (cssText: string, cssUrl: string): FontMetadata[] => {
   });
 };
 
-const parseDirectFontUrlsFromHtml = (html: string, targetUrl: URL, familyName: string): FontMetadata[] => {
-  const matches = [...html.matchAll(/value="(https?:\/\/wtypefoundry\.com\/typefaces\/[^"]+\/fonts\/[^"]+\.(?:woff2?|ttf|otf)(?:\?[^"]*)?)"/gi)];
+const parseDirectFontUrlsFromHtml = (
+  html: string,
+  targetUrl: URL,
+  familyName: string,
+  specimenPdfUrls: string[]
+): FontMetadata[] => {
+  const matches = [...html.matchAll(/value="(https?:\/\/wtypefoundry\.com\/typefaces\/[^\"]+\/fonts\/[^\"]+\.(?:woff2?|ttf|otf)(?:\?[^\"]*)?)"/gi)];
   const deduped = new Map<string, FontMetadata>();
 
   for (const match of matches) {
     const directUrl = match[1];
-    const fileName = decodeURIComponent(new URL(directUrl).pathname.split("/").pop() || "");
-    const stem = fileName.replace(/\.(woff2?|ttf|otf)$/i, "");
+    const descriptor = buildWTypeStyleDescriptor(directUrl, familyName);
 
     deduped.set(directUrl, {
       url: directUrl,
       family: familyName,
-      format: detectFormat(fileName),
-      style: detectStyle(stem),
-      weight: detectWeight(stem),
+      format: detectFormat(directUrl),
+      style: descriptor.style,
+      weight: descriptor.weight,
       downloadable: true,
       note: "Parsed from W Type HTML value URLs",
-      metadata: { pageUrl: targetUrl.href, foundry: "W Type Foundry", family: familyName }
+      metadata: {
+        pageUrl: targetUrl.href,
+        foundry: "W Type Foundry",
+        family: familyName,
+        styleName: descriptor.styleName,
+        fullName: descriptor.fullName,
+        specimenPdfUrls,
+        forceMetadataRepair: true
+      }
     });
   }
 
@@ -195,9 +276,67 @@ const buildWTypeInjectScript = (familyName: string): string => `
     window.scrollTo(0, document.body.scrollHeight);
     await sleep(600);
     window.__specimen_extraction_complete = true;
-    window.__saka_extraction_complete = true;
+    window.__specimen_extraction_complete = true;
   })();
 `;
+
+const buildWTypeFallbackResult = (rawUrl: string, reason: unknown): ScrapeResult => {
+  const targetUrl = normalizeTargetUrl(rawUrl);
+  const familySlug = extractFamilySlug(targetUrl);
+  const familyName = toTitle(familySlug);
+  const expectedAssetTokens = Array.from(
+    new Set(
+      [familySlug, familyName, familySlug.replace(/[^a-z0-9]+/gi, "")]
+        .map((value) => String(value || "").trim())
+        .filter(Boolean)
+    )
+  );
+  const targetProfile = {
+    profileId: "wtype-target-profile-fallback-v1",
+    foundry: "W Type Foundry",
+    familyDisplay: familyName,
+    familySlug,
+    targetUrl: targetUrl.href,
+    source: "wtypefoundry-browser-intercept-fallback",
+    styleScope: "style",
+    strictMissingStyles: false,
+    expectedStyles: [],
+    expectedAssetTokens
+  };
+
+  return {
+    scraperName: WTypeScraper.name,
+    foundryName: "W Type Foundry",
+    fonts: [
+      {
+        url: "browser-intercept",
+        family: familyName,
+        format: "woff2",
+        weight: "Regular",
+        style: "Normal",
+        downloadable: true,
+        note: "W Type browser-intercept fallback.",
+        metadata: {
+          foundry: "W Type Foundry",
+          family: familyName,
+          pageUrl: targetUrl.href,
+          targetUrl: targetUrl.href,
+          targetProfile,
+          fallbackReason: reason instanceof Error ? reason.message : String(reason)
+        }
+      }
+    ],
+    originalUrl: rawUrl,
+    targetUrl: targetUrl.href,
+    injectScript: buildWTypeInjectScript(familyName),
+    expectedCount: 1,
+    metadata: {
+      bypassWhitelist: true,
+      targetProfile,
+      fallbackReason: reason instanceof Error ? reason.message : String(reason)
+    }
+  };
+};
 
 export const WTypeScraper: Scraper = {
   id: "w-type",
@@ -220,6 +359,7 @@ export const WTypeScraper: Scraper = {
         }
       });
       const html = await pageResponse.text();
+      const specimenPdfUrls = extractPdfLinks(html, targetUrl.href);
 
       const fontfaceMatch = html.match(/href="([^"]*fontface\.css[^"]*)"/i);
       if (fontfaceMatch && fontfaceMatch[1]) {
@@ -228,14 +368,14 @@ export const WTypeScraper: Scraper = {
           headers: { "User-Agent": BROWSER_UA, Accept: "text/css,*/*;q=0.1" }
         });
         const cssText = await cssResponse.text();
-        const parsedFonts = parseFontFaceCss(cssText, fontfaceUrl).map((font) => ({
-          ...font,
-          metadata: {
-            ...(font.metadata || {}),
-            pageUrl: targetUrl.href,
-            foundry: "W Type Foundry"
-          }
-        }));
+        const parsedFonts = parseFontFaceCss(cssText, fontfaceUrl, targetUrl.href, familyName, specimenPdfUrls);
+        const expectedStyles = Array.from(
+          new Set(
+            parsedFonts
+              .map((font) => (typeof font.metadata?.styleName === "string" ? font.metadata.styleName.trim() : ""))
+              .filter(Boolean)
+          )
+        );
 
         if (parsedFonts.length > 0) {
           return {
@@ -244,20 +384,51 @@ export const WTypeScraper: Scraper = {
             fonts: parsedFonts,
             originalUrl: url,
             targetUrl: targetUrl.href,
-            expectedCount: parsedFonts.length
+            expectedCount: parsedFonts.length,
+            metadata: {
+              targetProfile: {
+                profileId: "wtype-target-profile-v2",
+                foundry: "W Type Foundry",
+                familyDisplay: familyName,
+                styleScope: "style",
+                expectedStyles,
+                specimenPdfUrls,
+                source: "wtypefoundry.com",
+                strictMissingStyles: false
+              }
+            }
           };
         }
       }
 
-      const fallbackFonts = parseDirectFontUrlsFromHtml(html, targetUrl, familyName);
+      const fallbackFonts = parseDirectFontUrlsFromHtml(html, targetUrl, familyName, specimenPdfUrls);
       if (fallbackFonts.length > 0) {
+        const expectedStyles = Array.from(
+          new Set(
+            fallbackFonts
+              .map((font) => (typeof font.metadata?.styleName === "string" ? font.metadata.styleName.trim() : ""))
+              .filter(Boolean)
+          )
+        );
         return {
           scraperName: this.name,
           foundryName: "W Type Foundry",
           fonts: fallbackFonts,
           originalUrl: url,
           targetUrl: targetUrl.href,
-          expectedCount: fallbackFonts.length
+          expectedCount: fallbackFonts.length,
+          metadata: {
+            targetProfile: {
+              profileId: "wtype-target-profile-v2",
+              foundry: "W Type Foundry",
+              familyDisplay: familyName,
+              styleScope: "style",
+              expectedStyles,
+              specimenPdfUrls,
+              source: "wtypefoundry.com",
+              strictMissingStyles: false
+            }
+          }
         };
       }
 
@@ -285,17 +456,21 @@ export const WTypeScraper: Scraper = {
         expectedCount: styleHints.size > 0 ? styleHints.size : undefined,
         injectScript: buildWTypeInjectScript(familyName),
         metadata: {
-          bypassWhitelist: true
+          bypassWhitelist: true,
+          targetProfile: {
+            profileId: "wtype-target-profile-v2",
+            foundry: "W Type Foundry",
+            familyDisplay: familyName,
+            styleScope: "style",
+            specimenPdfUrls,
+            source: "wtypefoundry.com",
+            strictMissingStyles: false
+          }
         }
       };
     } catch (error) {
       console.error("[WTypeScraper] Error:", error);
-      return {
-        scraperName: this.name,
-        foundryName: "W Type Foundry",
-        fonts: [],
-        originalUrl: url
-      };
+      return buildWTypeFallbackResult(url, error);
     }
   }
 };

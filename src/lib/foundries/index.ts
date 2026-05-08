@@ -1,5 +1,5 @@
-export * from "./types";
-import type { FoundryPreset } from "./types";
+export * from "./foundry-preset";
+import type { FoundryPreset } from "./foundry-preset";
 
 export const googleFontsPreset: FoundryPreset = {
   id: "google-fonts",

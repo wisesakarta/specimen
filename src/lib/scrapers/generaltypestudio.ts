@@ -1,4 +1,4 @@
-import type { FontMetadata, ScrapeResult, Scraper } from "./types";
+import type { FontMetadata, ScrapeResult, Scraper } from "./scraper-protocol";
 
 const GTS_HOST = "www.generaltypestudio.com";
 const GTS_ORIGIN = "https://www.generaltypestudio.com";
@@ -937,7 +937,7 @@ const buildFallbackInjectScript = (): string => `
     }
     await sleep(1200);
     window.__specimen_generaltypestudio_probe_done = true;
-    window.__saka_generaltypestudio_probe_done = true;
+    window.__specimen_generaltypestudio_probe_done = true;
   })();
 `;
 

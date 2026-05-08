@@ -1,4 +1,4 @@
-﻿import type { FontMetadata, ScrapeResult, Scraper } from "./types";
+import type { FontMetadata, ScrapeResult, Scraper } from "./scraper-protocol";
 
 const KHTYPE_HOST = "khtype.com";
 const KHTYPE_ORIGIN = "https://khtype.com";

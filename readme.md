@@ -1,7 +1,7 @@
 # Specimen
 
 Internal utility for analyzing foundry pages and collecting font assets into structured ZIP packages.
-Developed by `Saka Studio & Engineering`.
+Developed by `Technical Standard`.
 
 ## Current Status
 - Phase 1 implemented: scraper routing, download engine, zip delivery, and staging cleanup.

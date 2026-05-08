@@ -1,4 +1,4 @@
-import type { LicensePayload } from "@/lib/types";
+import type { LicensePayload } from "@/lib/downloader-protocol";
 
 const openLicenseIds = new Set([
   "OFL-1.1",

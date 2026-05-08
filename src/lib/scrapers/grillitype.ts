@@ -1,4 +1,4 @@
-import { Scraper, ScrapeResult } from "./types";
+import { Scraper, ScrapeResult } from "./scraper-protocol";
 import { generateProvocationScript } from "../provocation-dictionary";
 
 export const GrilliTypeScraper: Scraper = {

@@ -8,6 +8,53 @@ const FONT_CONVERT_TIMEOUT_MS = (() => {
   return 120000;
 })();
 
+const inspectVariableInstanceCount = async (inputPath: string): Promise<number> => {
+  try {
+    const { createRequire } = await import('node:module');
+    const require = createRequire(import.meta.url);
+    const fontkit = require('fontkit');
+    const font = fontkit.openSync(inputPath);
+    const count = Number(font?.fvar?.instanceCount || 0);
+    try {
+      font?.close?.();
+    } catch {
+      // ignore best-effort close failures
+    }
+    return Number.isFinite(count) ? count : 0;
+  } catch {
+    return 0;
+  }
+};
+
+function resolveExpectedInstanceCount(options?: ConvertOptions): number {
+  const raw = Number(options?.expectedInstanceCount);
+  if (!Number.isFinite(raw) || raw <= 0) return 0;
+  return Math.max(0, Math.floor(raw));
+}
+
+const resolveConvertTimeoutMs = async (inputPath: string, options?: ConvertOptions): Promise<number> => {
+  const base = FONT_CONVERT_TIMEOUT_MS;
+  if (options?.disableInstanceExplosion) return base;
+
+  let sizeExtraMs = 0;
+  try {
+    const stats = await fs.stat(inputPath);
+    const sizeMb = stats.size / (1024 * 1024);
+    if (Number.isFinite(sizeMb) && sizeMb > 1.5) {
+      sizeExtraMs = Math.ceil((sizeMb - 1.5) * 240000);
+    }
+  } catch {
+    sizeExtraMs = 0;
+  }
+
+  const inspectedInstanceCount = await inspectVariableInstanceCount(inputPath);
+  const hintedInstanceCount = resolveExpectedInstanceCount(options);
+  const instanceCount = Math.max(inspectedInstanceCount, hintedInstanceCount);
+  const instanceExtraMs = instanceCount > 8 ? (instanceCount - 8) * 9000 : 0;
+  const hardCapMs = instanceCount >= 64 ? 1800000 : 900000;
+  return Math.max(base, Math.min(hardCapMs, base + sizeExtraMs + instanceExtraMs));
+};
+
 // Resolve the full python path once at module load.
 // Without shell:true, spawn() can't find 'python' on Windows.
 // With shell:true, paths with parentheses like "(1)" get mangled by cmd.exe.
@@ -36,6 +83,7 @@ export interface ConversionResult {
 export interface ConvertOptions {
   disableOtf?: boolean;
   disableInstanceExplosion?: boolean;
+  expectedInstanceCount?: number;
   /**
    * Preserve the input's base filename when converting (avoid renaming outputs),
    * while still allowing metadata-based name table repair inside the font.
@@ -77,6 +125,91 @@ class Semaphore {
 
 const conversionSemaphore = new Semaphore(5); // Limit to 5 concurrent conversions
 
+const FONT_OUTPUT_EXTENSIONS = new Set(['.ttf', '.otf', '.woff', '.woff2']);
+
+const fileExists = async (candidate: string | undefined): Promise<string | null> => {
+  if (!candidate) return null;
+  try {
+    await fs.access(candidate);
+    return candidate;
+  } catch {
+    return null;
+  }
+};
+
+const snapshotFontOutputs = async (candidates: Array<string | undefined>): Promise<Set<string>> => {
+  const directories = [...new Set(
+    candidates
+      .filter((candidate): candidate is string => Boolean(candidate))
+      .map((candidate) => path.dirname(path.resolve(candidate)))
+  )];
+
+  const snapshot = new Set<string>();
+  for (const directory of directories) {
+    try {
+      const entries = await fs.readdir(directory, { withFileTypes: true });
+      for (const entry of entries) {
+        if (!entry.isFile()) continue;
+        const ext = path.extname(entry.name).toLowerCase();
+        if (!FONT_OUTPUT_EXTENSIONS.has(ext)) continue;
+        snapshot.add(path.resolve(directory, entry.name));
+      }
+    } catch {
+      // ignore missing output directories before first conversion
+    }
+  }
+
+  return snapshot;
+};
+
+const collectMaterializedOutputs = async (params: {
+  inputPath: string;
+  ttfPath: string;
+  otfPath?: string;
+  woffPath?: string;
+  woff2Path?: string;
+  snapshot: Set<string>;
+}): Promise<ConversionResult> => {
+  const directOutputSet = new Set(
+    [params.ttfPath, params.otfPath, params.woffPath, params.woff2Path]
+      .filter((candidate): candidate is string => Boolean(candidate))
+      .map((candidate) => path.resolve(candidate))
+  );
+
+  const instances = new Set<string>();
+  const directories = [...new Set(
+    [params.ttfPath, params.otfPath, params.woffPath, params.woff2Path, params.inputPath]
+      .filter((candidate): candidate is string => Boolean(candidate))
+      .map((candidate) => path.dirname(path.resolve(candidate)))
+  )];
+
+  for (const directory of directories) {
+    try {
+      const entries = await fs.readdir(directory, { withFileTypes: true });
+      for (const entry of entries) {
+        if (!entry.isFile()) continue;
+        const ext = path.extname(entry.name).toLowerCase();
+        if (!FONT_OUTPUT_EXTENSIONS.has(ext)) continue;
+        const absolute = path.resolve(directory, entry.name);
+        if (absolute === path.resolve(params.inputPath)) continue;
+        if (params.snapshot.has(absolute)) continue;
+        if (directOutputSet.has(absolute)) continue;
+        instances.add(absolute);
+      }
+    } catch {
+      // ignore output directories that disappeared during cleanup
+    }
+  }
+
+  return {
+    ttf: await fileExists(params.ttfPath),
+    otf: await fileExists(params.otfPath),
+    woff: await fileExists(params.woffPath),
+    woff2: (await fileExists(params.woff2Path)) || params.inputPath,
+    instances: [...instances].sort()
+  };
+};
+
 async function convertViaPython(
   inputPath: string, 
   ttfPath: string, 
@@ -100,12 +233,21 @@ async function convertViaPython(
   if (options?.disableOtf) args.push('--no-otf');
   if (options?.disableInstanceExplosion) args.push('--no-explode');
 
+  const inspectedVariableInstanceCount = options?.disableInstanceExplosion ? 0 : await inspectVariableInstanceCount(inputPath);
+  const hintedVariableInstanceCount = options?.disableInstanceExplosion ? 0 : resolveExpectedInstanceCount(options);
+  const variableInstanceCount = Math.max(inspectedVariableInstanceCount, hintedVariableInstanceCount);
+  const timeoutMs = await resolveConvertTimeoutMs(inputPath, options);
+  if (timeoutMs > FONT_CONVERT_TIMEOUT_MS) {
+    console.log(`[CONVERT] Extended timeout ${timeoutMs}ms for ${path.basename(inputPath)}.`);
+  }
+
   await conversionSemaphore.acquire();
+  const outputSnapshot = await snapshotFontOutputs([inputPath, ttfPath, otfPath, woffPath, woff2Path]);
 
   try {
     return await new Promise<ConversionResult>((resolve) => {
       let attempts = 0;
-      const maxAttempts = 3;
+      const maxAttempts = variableInstanceCount >= 32 ? 1 : 3;
 
       const run = () => {
         attempts++;
@@ -128,29 +270,60 @@ async function convertViaPython(
         const timeoutHandle = setTimeout(() => {
           timedOut = true;
           console.warn(
-            `[CONVERT] Timeout ${FONT_CONVERT_TIMEOUT_MS}ms for ${path.basename(inputPath)} (attempt ${attempts}/${maxAttempts}).`
+            `[CONVERT] Timeout ${timeoutMs}ms for ${path.basename(inputPath)} (attempt ${attempts}/${maxAttempts}).`
           );
           try {
             py.kill();
           } catch {
             // ignore
           }
-        }, FONT_CONVERT_TIMEOUT_MS);
+        }, timeoutMs);
 
-        py.on('error', (err: any) => {
+        py.on('error', async (err: any) => {
             clearTimeout(timeoutHandle);
             if (attempts < maxAttempts && (err.code === 'ENOENT' || err.code === 'UNKNOWN' || err.errno === -4094)) {
                 console.warn(`[CONVERT] Spawn error (${err.code}), retrying (${attempts}/${maxAttempts})...`);
                 setTimeout(run, 1000);
             } else {
                 console.error('[CONVERT] Final spawn failure:', err);
-                resolve({ ttf: null, otf: null, woff: null, woff2: inputPath });
+                resolve(await collectMaterializedOutputs({
+                  inputPath,
+                  ttfPath,
+                  otfPath,
+                  woffPath,
+                  woff2Path,
+                  snapshot: outputSnapshot
+                }));
             }
         });
 
-        py.on('close', (code) => {
+        py.on('close', async (code) => {
           clearTimeout(timeoutHandle);
           if (timedOut) {
+            const recovered = await collectMaterializedOutputs({
+              inputPath,
+              ttfPath,
+              otfPath,
+              woffPath,
+              woff2Path,
+              snapshot: outputSnapshot
+            });
+            const recoveredInstanceCount = Array.isArray(recovered.instances) ? recovered.instances.length : 0;
+            const hasRecoveredArtifacts = Boolean(
+              recovered.ttf ||
+              recovered.otf ||
+              recovered.woff ||
+              recoveredInstanceCount > 0
+            );
+            const recoveryLooksComplete =
+              variableInstanceCount <= 0 ||
+              options?.disableInstanceExplosion === true ||
+              recoveredInstanceCount >= Math.max(1, variableInstanceCount - 1);
+            if (hasRecoveredArtifacts && recoveryLooksComplete) {
+              console.warn(`[CONVERT] Using materialized outputs after timeout for ${path.basename(inputPath)}.`);
+              resolve(recovered);
+              return;
+            }
             if (attempts < maxAttempts) {
               console.warn(`[CONVERT] Retrying after timeout (${attempts}/${maxAttempts}) for ${path.basename(inputPath)}...`);
               setTimeout(run, 1000 * attempts);
@@ -181,16 +354,14 @@ async function convertViaPython(
               console.error(`[CONVERT] Python Exited ${code}:`, stderr.trim());
           }
 
-          // Fallback: manual check
-          const check = (p: string | undefined) => {
-              try { return p && require('fs').existsSync(p) ? p : null; } catch { return null; }
-          };
-          resolve({
-              ttf: check(ttfPath),
-              otf: check(otfPath),
-              woff: check(woffPath),
-              woff2: check(woff2Path) || inputPath
-          });
+          resolve(await collectMaterializedOutputs({
+            inputPath,
+            ttfPath,
+            otfPath,
+            woffPath,
+            woff2Path,
+            snapshot: outputSnapshot
+          }));
         });
       };
 
@@ -261,4 +432,7 @@ export async function convertToOtfLegacy(inputPath: string): Promise<string | nu
   const res = await convertToMultipleFormats(inputPath);
   return res.otf ?? res.ttf;
 }
+
+
+
 

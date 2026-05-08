@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 
-import type { DownloadRequest } from "@/lib/types";
+import type { DownloadRequest } from "@/lib/downloader-protocol";
 import { runDownload } from "@/lib/server/font-downloader";
 import { listOpenLicenses } from "@/lib/server/license-policy";
 import { ZipService } from "@/lib/server/services/zip-service";
@@ -32,6 +32,19 @@ const toSafeFileToken = (value: string | undefined): string | undefined => {
   if (!normalized) return undefined;
   // Prevent absurd filenames in Content-Disposition / client download prompts.
   return normalized.length > 80 ? normalized.slice(0, 80) : normalized;
+};
+
+// Produces a Berkeley-Mono-style display token: "Sascha Bente" → "Sascha_Bente"
+// Preserves original capitalisation; replaces whitespace with underscores.
+const toDisplayToken = (value: string | undefined): string | undefined => {
+  if (!value) return undefined;
+  const normalized = value
+    .trim()
+    .replace(/\s+/g, "_")
+    .replace(/[^a-zA-Z0-9_\-.]/g, "")
+    .replace(/_+/g, "_")
+    .replace(/^_+|_+$/g, "");
+  return normalized.length > 80 ? normalized.slice(0, 80) : (normalized || undefined);
 };
 
 const dropDuplicatedFoundryPrefix = (
@@ -170,6 +183,21 @@ const buildZipBaseName = (payload: DownloadRequest, resultOutputDir: string): st
   const categoryToken = toSafeFileToken(category);
 
   if (foundryToken && familyToken) {
+    // Prefer Berkeley-Mono-style display token when original display strings are available:
+    // "Sascha Bente" + "SB Viadukt" → "Sascha_Bente_-_SB_Viadukt"
+    const foundryDisplay = toDisplayToken(foundry);
+    const familyDisplay = toDisplayToken(
+      shouldPreferTargetSlug
+        ? pickString(targetSlug, family, inferFamilyFromUrl(urlHint))
+        : pickString(family, targetSlug, inferFamilyFromUrl(urlHint))
+    );
+    const categoryDisplay = toDisplayToken(category);
+
+    if (foundryDisplay && familyDisplay) {
+      const base = `${foundryDisplay}_-_${familyDisplay}`;
+      return categoryDisplay && categoryDisplay !== familyDisplay ? `${base}_-_${categoryDisplay}` : base;
+    }
+    // Fallback to legacy kebab tokens
     if (categoryToken && categoryToken !== familyToken) return `${foundryToken}-${familyToken}-${categoryToken}`;
     return `${foundryToken}-${familyToken}`;
   }
@@ -241,29 +269,48 @@ export async function POST(request: Request): Promise<Response> {
     const payload = validatePayload(body);
 
     
-    // [PROGRESSIVE-STREAMING] Handle browser-intercept via ReadableStream
-    if (payload.mode === 'browser-intercept') {
+    const wantsStream = payload.mode === "browser-intercept" || (body as any)?.stream === true;
+
+    // [PROGRESSIVE-STREAMING] Stream logs/progress for long-running downloads.
+    if (wantsStream) {
         const stream = new ReadableStream({
             async start(controller) {
                 try {
-                    (payload as any).onProgress = (event: any) => {
-                        const data = JSON.stringify(event) + '\n';
-                        controller.enqueue(encoder.encode(data));
+                    const emit = (event: any) => {
+                      const data = JSON.stringify(event) + "\n";
+                      controller.enqueue(encoder.encode(data));
                     };
+
+                    (payload as any).onProgress = (event: any) => {
+                        emit(event);
+                    };
+
+                    emit({
+                      type: "log",
+                      message: `[Server] start (${payload.mode})`
+                    });
 
                     const result = await runDownload(payload);
                     
                     // After browser-intercept completes, we ZIP and signal the client
+                    emit({
+                      type: "log",
+                      message: `[Server] download complete (downloaded=${result.downloaded.length}, skipped=${result.skipped.length}). generating zip...`
+                    });
                     const zipBuffer = await ZipService.createZip(result.outputDir);
                     const base64Zip = zipBuffer.toString('base64');
                     const zipFileBase = buildZipBaseName(payload, result.outputDir);
+                    emit({
+                      type: "log",
+                      message: `[Server] zip ready (${zipFileBase}.zip). sending...`
+                    });
                     
-                    controller.enqueue(encoder.encode(JSON.stringify({ 
-                      type: 'result', 
+                    emit({
+                      type: "result",
                       result,
                       zipBase64: base64Zip,
                       zipFile: `${zipFileBase}.zip`
-                    }) + '\n'));
+                    });
                     
                     controller.close();
                     
@@ -272,7 +319,7 @@ export async function POST(request: Request): Promise<Response> {
                 } catch (error) {
                     const message = error instanceof Error ? error.message : "Stream Error";
                     console.error("[API] Stream failed:", message);
-                    controller.enqueue(encoder.encode(JSON.stringify({ type: 'error', error: message }) + '\n'));
+                    controller.enqueue(encoder.encode(JSON.stringify({ type: "error", error: message }) + "\n"));
                     controller.close();
                 }
             }
@@ -286,7 +333,7 @@ export async function POST(request: Request): Promise<Response> {
         });
     }
 
-    // [ZIP-AND-SHIP] Standard mode for Scrapers (ABC Dinamo, etc.)
+    // [ZIP-AND-SHIP] Standard binary response (kept for compatibility / non-stream callers).
     const result = await runDownload(payload);
     console.log("[API] Download complete, generating distribution ZIP...");
 

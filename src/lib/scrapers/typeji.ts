@@ -1,4 +1,4 @@
-import type { FontMetadata, ScrapeResult, Scraper } from "./types";
+import type { FontMetadata, ScrapeResult, Scraper } from "./scraper-protocol";
 
 const TYPEJI_HOST = "www.typeji.com";
 const TYPEJI_ORIGIN = "https://www.typeji.com";
@@ -79,7 +79,7 @@ type GraphQlEnvelope<T> = {
   errors?: Array<{ message?: string }>;
 };
 
-const STORE_MODAL_PRODUCT_QUERY = `query StoreModalProductRefetchQuery($licenseOptions:[LicenseOptionsSpec]!,$orderVariables:[OrderVariableSelectionInput!],$id:ID!){node(id:$id){__typename ... on FontCollection {id name cssUrl featureStyle {cssFamily name supportedLanguages} fontStyles {id name cssFamily cssWeight supportedLanguages sku {id}} children(collectionTypes:[FAMILY]) {id name cssUrl featureStyle {cssFamily name supportedLanguages} fontStyles {id name cssFamily cssWeight supportedLanguages sku {id}}} licenses {id name defaultSelected variables:licenseVariables {id name variableType options:licenseOptions {id name amount}}}}}}`;
+const STORE_MODAL_PRODUCT_QUERY = `query StoreModalProductRefetchQuery($id:ID!){node(id:$id){__typename ... on FontCollection {id name cssUrl featureStyle {cssFamily name supportedLanguages} fontStyles {id name cssFamily cssWeight supportedLanguages sku {id}} children(collectionTypes:[FAMILY]) {id name cssUrl featureStyle {cssFamily name supportedLanguages} fontStyles {id name cssFamily cssWeight supportedLanguages sku {id}}} licenses {id name defaultSelected variables:licenseVariables {id name variableType options:licenseOptions {id name amount}}}}}}`;
 
 const CHARACTER_VIEWER_QUERY = `query CharacterViewerIDQuery($collectionId: ID!){node(id:$collectionId){__typename ... on FontCollection {id name cssUrl collectionType glyphGroups {name characterSets {features}} featureStyle {cssFamily name glyphNames {features name} verticalMetrics {unitsPerEm ascender descender xHeight capHeight lineGap}} fontStyles {id cssFamily name} children(collectionTypes:[FAMILY]) {id name cssUrl fontStyles {id cssFamily name}}}}}`;
 
@@ -884,7 +884,7 @@ const buildFallbackInjectScript = (): string => `
     }
     await sleep(1200);
     window.__specimen_typeji_probe_done = true;
-    window.__saka_typeji_probe_done = true;
+    window.__specimen_typeji_probe_done = true;
   })();
 `;
 
@@ -934,7 +934,7 @@ export const TypejiScraper: Scraper = {
         fetchGraphQlWithRetry<{ node?: unknown }>({
           queryName: "StoreModalProductRefetchQuery",
           query: STORE_MODAL_PRODUCT_QUERY,
-          variables: { id: collectionId, licenseOptions: [], orderVariables: [] },
+          variables: { id: collectionId },
           referer: TYPEJI_ORIGIN
         }),
         fetchGraphQlWithRetry<{ node?: unknown }>({
@@ -998,10 +998,9 @@ export const TypejiScraper: Scraper = {
         }
       }
 
-      const allFeatureTags = dedupeStringList([
-        ...htmlFeatureTags,
-        ...(characterProfile?.featureTags || [])
-      ]).map((tag) => tag.toLowerCase());
+      const verifiedFeatureTags = dedupeStringList(characterProfile?.featureTags || []).map((tag) => tag.toLowerCase());
+      const hintedFeatureTags = dedupeStringList(htmlFeatureTags).map((tag) => tag.toLowerCase());
+      const requiredFeatureTags = verifiedFeatureTags.length > 0 ? verifiedFeatureTags : hintedFeatureTags;
 
       const languages = dedupeStringList([
         ...(storeProfile?.languages || []),
@@ -1017,7 +1016,7 @@ export const TypejiScraper: Scraper = {
         htmlStyleNames,
         cssFaces,
         specimenPdfUrls,
-        featureTags: allFeatureTags,
+        featureTags: requiredFeatureTags,
         glyphCount: characterProfile?.glyphCount || htmlGlyphCount,
         licenses: storeProfile?.licenses || [],
         languages
@@ -1084,7 +1083,10 @@ export const TypejiScraper: Scraper = {
           foundry: "Typeji",
           family: familyName,
           targetProfile,
-          specimenPdfUrls
+          specimenPdfUrls,
+          requiredFeatureTags,
+          verifiedFeatureTags,
+          hintedFeatureTags
         }
       };
     } catch (error) {

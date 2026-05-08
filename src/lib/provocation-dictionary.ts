@@ -97,6 +97,6 @@ export function generateProvocationScript(strategyKey: keyof typeof PROVOCATION_
         
         // Signal completion to the interceptor
         window.__specimen_extraction_complete = true;
-        window.__saka_extraction_complete = true;
+        window.__specimen_extraction_complete = true;
     })();`;
 }

@@ -1,4 +1,4 @@
-import { FontMetadata, ScrapeResult, Scraper } from "./types";
+import { FontMetadata, ScrapeResult, Scraper } from "./scraper-protocol";
 
 const FONT_URL_REGEX =
   /(https:\/\/ohno\.sfo3\.cdn\.digitaloceanspaces\.com\/fonts\/[^\s"'()]+?\.(?:woff2|woff|ttf|otf)(?:\?[^\s"'()]*)?)/gi;

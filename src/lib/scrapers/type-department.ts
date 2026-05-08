@@ -1,4 +1,4 @@
-import type { FontMetadata, ScrapeResult, Scraper } from "./types";
+import type { FontMetadata, ScrapeResult, Scraper } from "./scraper-protocol";
 
 const TYPE_DEPARTMENT_ORIGIN = "https://type-department.com";
 const TYPE_DEPARTMENT_PRODUCTS_ENDPOINT = `${TYPE_DEPARTMENT_ORIGIN}/products.json?limit=250`;

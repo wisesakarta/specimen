@@ -1,7 +1,11 @@
 .next/
+.mcp-chrome-profile/
 node_modules/
 downloads/
 out/
+.agent/
+.vscode/
+backup/
 *.log
 next-env.d.ts
 *.tsbuildinfo
@@ -22,7 +26,16 @@ tmp-*
 
 # Generated reports and ad-hoc captures
 tasks/reports/*.json
+tasks/reports/**/*.json
+tasks/reports/**/*.jsonl
+tasks/reports/**/*.html
+tasks/reports/**/*.txt
+tasks/reports/**/*.js
+tasks/reports/**/*.xml
 tasks/research/*.json
 tasks/tmp/*.html
 *.resp
 *.bin.zip
+
+*storybook.log
+storybook-static

@@ -1,4 +1,4 @@
-import type { BrowserRequest, CapturedFontItem, DownloadResult, DownloadedFile, SkippedItem } from "@/lib/types";
+import type { BrowserRequest, CapturedFontItem, DownloadResult, DownloadedFile, SkippedItem } from "@/lib/downloader-protocol";
 import path from "node:path";
 import fs from "node:fs";
 

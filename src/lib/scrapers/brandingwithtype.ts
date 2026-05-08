@@ -1,6 +1,6 @@
 import vm from "node:vm";
 
-import type { FontMetadata, ScrapeResult, Scraper } from "./types";
+import type { FontMetadata, ScrapeResult, Scraper } from "./scraper-protocol";
 import { putInlineFontAsset } from "@/lib/server/inline-font-cache";
 
 const BRANDING_WITH_TYPE_HOST = "brandingwithtype.com";
@@ -824,7 +824,7 @@ const buildFallbackInjectScript = (): string => `
     }
     await sleep(1200);
     window.__specimen_extraction_complete = true;
-    window.__saka_extraction_complete = true;
+    window.__specimen_extraction_complete = true;
   })();
 `;
 

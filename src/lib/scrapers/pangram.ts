@@ -1,4 +1,4 @@
-import { Scraper, ScrapeResult } from "./types";
+import { Scraper, ScrapeResult } from "./scraper-protocol";
 
 const toReadableFamily = (value: string): string =>
   value
@@ -171,6 +171,42 @@ const extractPangramExpectedStyles = (html: string): string[] => {
   return Array.from(styles);
 };
 
+const extractPangramPdfUrlsFromHtml = (html: string, pageUrl: string): string[] => {
+  const out = new Set<string>();
+  const add = (raw: string) => {
+    if (!raw) return;
+    const decoded = decodePangramHtmlEntities(raw.trim().replace(/\\\//g, "/"));
+    try {
+      const resolved = /^https?:\/\//i.test(decoded)
+        ? new URL(decoded)
+        : decoded.startsWith("//")
+          ? new URL(`https:${decoded}`)
+          : new URL(decoded, pageUrl);
+      if (!/\.pdf(?:$|\?)/i.test(resolved.href)) return;
+      out.add(resolved.href);
+    } catch {
+      // ignore malformed candidates
+    }
+  };
+
+  const patterns = [
+    /https?:\/\/[^\s"'<>]+?\.pdf(?:\?[^\s"'<>]*)?/gi,
+    /["'](\/\/[^"'<>]+?\.pdf(?:\?[^"'<>]*)?)["']/gi,
+    /["'](\/[^"'<>]+?\.pdf(?:\?[^"'<>]*)?)["']/gi,
+    /\\"(https?:\/\/[^\\"]+?\.pdf(?:\?[^\\"]*)?)\\"/gi,
+    /\\"(\/\/[^\\"]+?\.pdf(?:\?[^\\"]*)?)\\"/gi,
+    /\\"(\/[^\\"]+?\.pdf(?:\?[^\\"]*)?)\\"/gi
+  ];
+
+  for (const pattern of patterns) {
+    for (const match of html.matchAll(pattern)) {
+      add(String(match[1] || match[0] || ""));
+    }
+  }
+
+  return Array.from(out);
+};
+
 const buildPangramInjectScript = (familyName: string): string => {
   const familyToken = familyName.toLowerCase().replace(/[^a-z0-9]+/g, "");
   return `
@@ -197,7 +233,6 @@ const buildPangramInjectScript = (familyName: string): string => {
         } catch {}
       }
 
-      // Sweep style selects (this is where Pangram triggers most raw font URLs).
       const selects = Array.from(document.querySelectorAll("select"));
       for (const sel of selects) {
         const options = Array.from(sel.options || []);
@@ -227,7 +262,6 @@ const buildPangramInjectScript = (familyName: string): string => {
         }
       }
 
-      // Click only typography toggles; avoid buy/cart/license controls.
       const allowedButton = /(text|display|standard|upright|italic|variable|style|weight|preview|try)/i;
       const blockedButton = /(buy|cart|checkout|add|license|workstation|pageviews|followers|impressions|employees|contact|faq|menu|search)/i;
       const buttons = Array.from(document.querySelectorAll('button, [role="button"]'));
@@ -244,8 +278,7 @@ const buildPangramInjectScript = (familyName: string): string => {
           await sleep(180);
         } catch {}
       }
-      
-      // Ensure lazily rendered sections are mounted without clicking external links.
+
       for (let pass = 1; pass <= 5; pass++) {
         window.scrollTo(0, Math.floor((document.body.scrollHeight * pass) / 5));
         await sleep(300);
@@ -255,9 +288,140 @@ const buildPangramInjectScript = (familyName: string): string => {
 
       console.log("[SPECIMEN] Provokasi Selesai");
       window.__specimen_extraction_complete = true;
-      window.__saka_extraction_complete = true;
+      window.__specimen_extraction_complete = true;
     })();
   `;
+};
+
+type PangramStyleDescriptor = {
+  styleName: string;
+  weight: string;
+  style: "Normal" | "Italic";
+  fileStem: string;
+};
+
+const escapePangramRegExp = (value: string): string => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+const stripPangramVariantPrefix = (styleLabel: string, variant?: string): string => {
+  if (!variant) return styleLabel;
+  const pattern = new RegExp(`^${escapePangramRegExp(variant)}\\s+`, "i");
+  return styleLabel.replace(pattern, "").trim();
+};
+
+const buildPangramStyleDescriptor = (styleLabel: string, variant?: string): PangramStyleDescriptor => {
+  const normalized = normalizePangramStyleLabel(styleLabel);
+  const core = stripPangramVariantPrefix(normalized, variant);
+  const isItalic = /(?:^|\s)italic$/i.test(core);
+  const weight = (isItalic ? core.replace(/(?:^|\s)italic$/i, "") : core).trim() || "Regular";
+  const fileLabel = weight === "Italic" ? "Regular Italic" : isItalic ? `${weight} Italic` : weight;
+  return {
+    styleName: normalized,
+    weight,
+    style: isItalic ? "Italic" : "Normal",
+    fileStem: fileLabel.replace(/\s+/g, "")
+  };
+};
+
+const isPangramCoreStyle = (styleLabel: string): boolean => !/^text\b/i.test(styleLabel.trim());
+
+const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
+
+const probePangramDirectAsset = async (url: string): Promise<boolean> => {
+  const headers: HeadersInit = {
+    "User-Agent": PANGRAM_UA,
+    Accept: "*/*"
+  };
+
+  for (let attempt = 1; attempt <= 3; attempt += 1) {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 12_000);
+    try {
+      const response = await fetch(url, {
+        method: "GET",
+        headers: { ...headers, Range: "bytes=0-0" },
+        redirect: "follow",
+        signal: controller.signal
+      });
+      if (response.ok || response.status === 206) return true;
+      if (response.status === 403 || response.status === 405 || response.status === 416) {
+        const headResponse = await fetch(url, {
+          method: "HEAD",
+          headers,
+          redirect: "follow",
+          signal: controller.signal
+        });
+        if (headResponse.ok) return true;
+      }
+    } catch {
+      // retry
+    } finally {
+      clearTimeout(timeout);
+    }
+    if (attempt < 3) await sleep(240 * attempt);
+  }
+  return false;
+};
+
+const buildPangramDirectFonts = async (params: {
+  familyName: string;
+  familyPostscript: string;
+  normalizedTargetUrl: string;
+  expectedStyles: string[];
+  targetProfile: Record<string, unknown>;
+  specimenPdfUrls: string[];
+  variant?: string;
+}): Promise<any[]> => {
+  const { familyName, familyPostscript, normalizedTargetUrl, expectedStyles, targetProfile, specimenPdfUrls, variant } = params;
+  const fonts: any[] = [];
+  const seenUrls = new Set<string>();
+
+  const pushIfReachable = async (descriptor: PangramStyleDescriptor | null, url: string) => {
+    if (!descriptor || seenUrls.has(url)) return;
+    if (!(await probePangramDirectAsset(url))) return;
+    seenUrls.add(url);
+    fonts.push({
+      url,
+      family: familyName,
+      format: "woff2",
+      weight: descriptor.weight,
+      style: descriptor.style,
+      downloadable: true,
+      note: "Verified Pangram direct asset.",
+      metadata: {
+        pageUrl: normalizedTargetUrl,
+        targetUrl: normalizedTargetUrl,
+        foundry: "Pangram Pangram",
+        family: familyName,
+        familyPostscript,
+        styleName: descriptor.styleName,
+        fullName: `${familyName} ${descriptor.styleName}`,
+        forceMetadataRepair: true,
+        specimenPdfUrls,
+        targetProfile
+      }
+    });
+  };
+
+  await pushIfReachable(
+    {
+      styleName: "Variable",
+      weight: "Variable",
+      style: "Normal",
+      fileStem: "Variable"
+    },
+    `https://files.pangrampangram.com/fonts/${familyPostscript}-Variable.woff2`
+  );
+
+  const coreExpectedStyles = expectedStyles.filter((style) => isPangramCoreStyle(style) && !/variable/i.test(style));
+  for (const styleLabel of coreExpectedStyles) {
+    const descriptor = buildPangramStyleDescriptor(styleLabel, variant);
+    await pushIfReachable(
+      descriptor,
+      `https://files.pangrampangram.com/fonts/${familyPostscript}-${descriptor.fileStem}.woff2`
+    );
+  }
+
+  return fonts;
 };
 
 export const PangramScraper: Scraper = {
@@ -277,8 +441,9 @@ export const PangramScraper: Scraper = {
       let familySlug = pathParts.length > 0 ? pathParts[pathParts.length - 1] : "";
       let collectionFamilyUrls: string[] = [];
       let expectedStyles: string[] = [];
+      let specimenPdfUrls: string[] = [];
       const expectedPostscriptNames = new Set<string>();
-      
+
       if (productsIdx >= 0 && pathParts[productsIdx + 1]) {
         familySlug = pathParts[productsIdx + 1];
         const canonicalSlug = familySlug.replace(/^pp-/i, "");
@@ -297,6 +462,10 @@ export const PangramScraper: Scraper = {
           const html = await response.text();
           collectionFamilyUrls = extractPangramCollectionFamilyUrls(html, urlObj.origin, familySlug);
           expectedStyles = applyPangramVariantPrefix(extractPangramExpectedStyles(html), subfamilyVariant);
+          specimenPdfUrls = extractPangramPdfUrlsFromHtml(html, normalizedTargetUrl).filter((pdfUrl) => {
+            const token = normalizePangramToken(pdfUrl);
+            return token.includes(normalizePangramToken(familySlug)) || token.includes(normalizePangramToken(familyPostscript));
+          });
           for (const postscript of extractPangramPostscriptNamesFromHtml(html, familyPostscript)) {
             expectedPostscriptNames.add(postscript);
           }
@@ -332,52 +501,72 @@ export const PangramScraper: Scraper = {
         })
         .filter(Boolean);
 
+      const coreExpectedStyles = expectedStyles.filter((style) => isPangramCoreStyle(style));
+      const optionalExcludedStyles = expectedStyles.filter((style) => !isPangramCoreStyle(style));
+
       const targetProfile = {
-        profileId: "pangram-target-profile-v1",
+        profileId: "pangram-target-profile-v2",
         foundry: "Pangram Pangram",
         targetUrl: normalizedTargetUrl,
         targetSlug: familySlug || undefined,
         familyDisplay: familyName,
         familyPostscript,
-        expectedStyles,
+        expectedStyles: coreExpectedStyles,
+        optionalExcludedStyles,
         expectedPostscriptNames: Array.from(expectedPostscriptNames),
         expectedPostscriptCount: expectedPostscriptNames.size,
-        expectedStyleCount: expectedStyles.length,
+        expectedStyleCount: coreExpectedStyles.length,
         collectionFamilies: collectionFamilySlugs,
+        specimenPdfUrls,
         collectedAt: new Date().toISOString(),
         source: "html-option-scan"
       };
 
+      const directFonts = await buildPangramDirectFonts({
+        familyName,
+        familyPostscript,
+        normalizedTargetUrl,
+        expectedStyles: coreExpectedStyles,
+        targetProfile,
+        specimenPdfUrls,
+        variant: subfamilyVariant
+      });
+
       const expectedCount =
-        expectedPostscriptNames.size > 0
-          ? expectedPostscriptNames.size
-          : expectedStyles.length > 0
-          ? expectedStyles.length
-          : collectionFamilySlugs.length > 0
-            ? collectionFamilySlugs.length * 10
-            : (familyName.toLowerCase().includes("frama") ? 28 : undefined);
+        directFonts.length > 0
+          ? directFonts.length
+          : expectedPostscriptNames.size > 0
+            ? expectedPostscriptNames.size
+            : expectedStyles.length > 0
+              ? expectedStyles.length
+              : collectionFamilySlugs.length > 0
+                ? collectionFamilySlugs.length * 10
+                : (familyName.toLowerCase().includes("frama") ? 28 : undefined);
 
       return {
         scraperName: this.name,
         foundryName: "Pangram Pangram",
-        fonts: [
-          {
-            url: "browser-intercept",
-            family: familyName,
-            format: "woff2",
-            weight: "Regular",
-            style: "Normal",
-            downloadable: true,
-            note: "Ekstraksi melalui intersepsi browser.",
-            metadata: {
-              pageUrl: normalizedTargetUrl,
-              collection: collectionFamilySlugs.length > 0 ? familySlug : undefined,
-              collectionFamilies: collectionFamilySlugs,
-              collectionFamilyUrls,
-              targetProfile
-            }
-          }
-        ],
+        fonts: directFonts.length > 0
+          ? directFonts
+          : [
+              {
+                url: "browser-intercept",
+                family: familyName,
+                format: "woff2",
+                weight: "Regular",
+                style: "Normal",
+                downloadable: true,
+                note: "Ekstraksi melalui intersepsi browser.",
+                metadata: {
+                  pageUrl: normalizedTargetUrl,
+                  collection: collectionFamilySlugs.length > 0 ? familySlug : undefined,
+                  collectionFamilies: collectionFamilySlugs,
+                  collectionFamilyUrls,
+                  specimenPdfUrls,
+                  targetProfile
+                }
+              }
+            ],
         originalUrl: url,
         targetUrl: normalizedTargetUrl,
         injectScript: buildPangramInjectScript(familyName),
@@ -385,17 +574,19 @@ export const PangramScraper: Scraper = {
         metadata: {
           targetProfile,
           collectionFamilyUrls,
-          collectionFamilies: collectionFamilySlugs
+          collectionFamilies: collectionFamilySlugs,
+          specimenPdfUrls
         }
       };
     } catch (e) {
       console.error("Pangram Scraper Error:", e);
-      return { 
-        scraperName: this.name, 
-        foundryName: "Pangram Pangram", 
-        fonts: [], 
-        originalUrl: url 
-        };
+      return {
+        scraperName: this.name,
+        foundryName: "Pangram Pangram",
+        fonts: [],
+        originalUrl: url
+      };
     }
   }
 };
+

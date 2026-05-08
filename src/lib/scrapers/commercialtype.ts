@@ -1,4 +1,4 @@
-import type { FontMetadata, ScrapeResult, Scraper } from "./types";
+import type { FontMetadata, ScrapeResult, Scraper } from "./scraper-protocol";
 
 const HOST = "commercialtype.com";
 const ORIGIN = `https://${HOST}`;
@@ -185,7 +185,7 @@ const fallbackInjectScript = () => `
     }
     await sleep(1200);
     window.__specimen_commercialtype_probe_done = true;
-    window.__saka_commercialtype_probe_done = true;
+    window.__specimen_commercialtype_probe_done = true;
   })();
 `;
 

@@ -5,14 +5,17 @@ import fs from "node:fs";
 import { mkdir, readFile, rename, unlink, writeFile } from "node:fs/promises";
 // @ts-ignore -- adm-zip uses export=.
 import AdmZip from "adm-zip";
-import type { BrowserRequest, DownloadResult, DownloadedFile, SkippedItem } from "@/lib/types";
+import type { BrowserRequest, DownloadResult, DownloadedFile, SkippedItem } from "@/lib/downloader-protocol";
 import puppeteer from "puppeteer-extra";
 import StealthPlugin from "puppeteer-extra-plugin-stealth";
 import type { Browser, Page } from "puppeteer";
 import { InterceptionService } from "./services/interception";
+import { acquireBrowserSession } from "./services/browser-session-pool";
 import { runValidationLog } from "./services/validation";
+import { runPureSuccessProtocol } from "./services/pure-success-protocol";
+import { runTechnicalQa } from "./services/technical-qa";
 import { convertToMultipleFormats } from "./font-converter";
-import { getBaseDownloadRoot, joinOpaquePath } from "./opaque-path";
+import { getBaseDownloadRoot, getStagingRoot, joinOpaquePath } from "./opaque-path";
 import { collectSpecimenPdfAudit } from "./specimen-audit";
 
 puppeteer.use(StealthPlugin());
@@ -29,6 +32,26 @@ type CapturedAsset = {
 };
 
 type CoTypeFontRow = Record<string, unknown>;
+type NormalizedProxyCandidate = {
+  server: string;
+  username?: string;
+  password?: string;
+  key: string;
+  label: string;
+};
+
+type BrowserExecutionPolicy = {
+  sessionEnabled: boolean;
+  sessionKey: string;
+  sessionTtlMs: number;
+  sessionMaxUses: number;
+  proxies: NormalizedProxyCandidate[];
+  maxAttempts: number;
+  rotateOnBlocked: boolean;
+  blockedStatusCodes: Set<number>;
+  blockedPatterns: RegExp[];
+  blockedStrongPatterns: RegExp[];
+};
 
 const toRelative = (absolutePath: string): string => path.relative(process.cwd(), absolutePath);
 
@@ -42,6 +65,24 @@ const toSafeSegment = (value: string): string => {
   return normalized || "job";
 };
 
+const toSafeOutputFolderPath = (value: string): string => {
+  const sanitizePart = (part: string): string => {
+    const normalized = part
+      .toLowerCase()
+      .replace(/[^a-z0-9._-]+/g, "-")
+      .replace(/-+/g, "-")
+      .replace(/^-+|-+$/g, "");
+    return normalized || "job";
+  };
+  const parts = value
+    .split(/[\\/]+/g)
+    .map((part) => part.trim())
+    .filter(Boolean)
+    .map((part) => sanitizePart(part));
+  if (parts.length === 0) return "job";
+  return path.join(...parts);
+};
+
 const toSafeFileName = (value: string): string => {
   const normalized = value
     .trim()
@@ -49,7 +90,8 @@ const toSafeFileName = (value: string): string => {
     .replace(/\s+/g, "-")
     .replace(/-+/g, "-")
     .replace(/^-+|-+$/g, "");
-  return normalized || "font-file";
+  const clamped = normalized.slice(0, 140).replace(/-+$/g, "");
+  return clamped || "font-file";
 };
 
 const shortHash = (buffer: Buffer): string =>
@@ -63,6 +105,266 @@ const asString = (value: unknown): string | undefined => {
   const trimmed = value.trim();
   return trimmed ? trimmed : undefined;
 };
+
+const asNumber = (value: unknown): number | undefined => {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : undefined;
+};
+
+const normalizeProxyServer = (value: string): string => {
+  const trimmed = value.trim();
+  if (!trimmed) return "";
+
+  try {
+    const parsed = new URL(trimmed);
+    if (!parsed.protocol || !parsed.hostname) return "";
+    return `${parsed.protocol}//${parsed.host}`;
+  } catch {
+    // fallback for raw host:port proxies
+    if (/^[a-z0-9_.-]+:\d+$/i.test(trimmed)) return `http://${trimmed}`;
+    return trimmed;
+  }
+};
+
+const normalizeProxyCandidate = (value: unknown): NormalizedProxyCandidate | undefined => {
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    if (!trimmed) return undefined;
+    const server = normalizeProxyServer(trimmed);
+    if (!server) return undefined;
+
+    let username: string | undefined;
+    let password: string | undefined;
+    try {
+      const parsed = new URL(trimmed);
+      username = parsed.username ? decodeURIComponent(parsed.username) : undefined;
+      password = parsed.password ? decodeURIComponent(parsed.password) : undefined;
+    } catch {
+      // best effort
+    }
+
+    const key = `${server}|${username || ""}`;
+    return {
+      server,
+      username,
+      password,
+      key,
+      label: username ? `${server} (${username})` : server
+    };
+  }
+
+  if (!isRecord(value)) return undefined;
+  const rawServer = asString(value.server || value.url || value.proxy);
+  if (!rawServer) return undefined;
+  const server = normalizeProxyServer(rawServer);
+  if (!server) return undefined;
+  const username = asString(value.username || value.user);
+  const password = asString(value.password || value.pass);
+  const key = `${server}|${username || ""}`;
+  return {
+    server,
+    username,
+    password,
+    key,
+    label: username ? `${server} (${username})` : server
+  };
+};
+
+const defaultBlockedPatterns = [
+  /access denied/i,
+  /request blocked/i,
+  /forbidden/i,
+  /verify (that )?you are human/i,
+  /challenge required/i,
+  /bot detection/i,
+  /captcha/i,
+  /turnstile/i,
+  /just a moment/i,
+  /attention required/i
+];
+
+const defaultBlockedStrongPatterns = [
+  /cf-challenge/i,
+  /challenge-platform/i,
+  /ray id/i,
+  /perimeterx/i,
+  /datadome/i,
+  /hcaptcha/i,
+  /recaptcha/i,
+  /turnstile/i
+];
+
+const resolveBrowserExecutionPolicy = (request: BrowserRequest): BrowserExecutionPolicy => {
+  const host = new URL(request.targetUrl).host.toLowerCase();
+  const metadata = isRecord(request.metadata) ? request.metadata : {};
+  const browserSession = isRecord(metadata.browserSession) ? metadata.browserSession : {};
+  const sessionEnabledRaw = browserSession.enabled ?? metadata.sessionEnabled;
+  const sessionEnabled = typeof sessionEnabledRaw === "boolean" ? sessionEnabledRaw : false;
+  const sessionKey =
+    asString(browserSession.key) ||
+    asString((metadata as any).sessionKey) ||
+    `${host}:browser-intercept`;
+  const sessionTtlMs = asNumber(browserSession.ttlMs) ?? asNumber((metadata as any).sessionTtlMs) ?? 10 * 60 * 1000;
+  const sessionMaxUses = asNumber(browserSession.maxUses) ?? asNumber((metadata as any).sessionMaxUses) ?? 12;
+
+  const rawProxyCandidates: unknown[] = [];
+  if (Array.isArray((metadata as any).proxyPool)) rawProxyCandidates.push(...(metadata as any).proxyPool);
+  if (Array.isArray((metadata as any).proxyRotation)) rawProxyCandidates.push(...(metadata as any).proxyRotation);
+  if (Array.isArray((metadata as any).proxies)) rawProxyCandidates.push(...(metadata as any).proxies);
+  if ((metadata as any).proxy) rawProxyCandidates.push((metadata as any).proxy);
+  if ((browserSession as any).proxy) rawProxyCandidates.push((browserSession as any).proxy);
+  if (Array.isArray((browserSession as any).proxyPool)) rawProxyCandidates.push(...(browserSession as any).proxyPool);
+
+  const proxyMap = new Map<string, NormalizedProxyCandidate>();
+  for (const rawCandidate of rawProxyCandidates) {
+    const normalized = normalizeProxyCandidate(rawCandidate);
+    if (!normalized) continue;
+    if (!proxyMap.has(normalized.key)) proxyMap.set(normalized.key, normalized);
+  }
+  const proxies = Array.from(proxyMap.values());
+
+  const rotateOnBlockedRaw = browserSession.rotateOnBlocked ?? (metadata as any).rotateOnBlocked;
+  const rotateOnBlocked = typeof rotateOnBlockedRaw === "boolean" ? rotateOnBlockedRaw : true;
+  const maxAttemptsRaw = asNumber(browserSession.maxAttempts) ?? asNumber((metadata as any).maxAttempts);
+  const maxAttempts = Math.max(
+    1,
+    Math.min(8, Math.floor(maxAttemptsRaw && maxAttemptsRaw > 0 ? maxAttemptsRaw : proxies.length > 0 ? proxies.length : 1))
+  );
+
+  const statusCodesFromMetadata = Array.isArray((metadata as any).blockedStatusCodes)
+    ? (metadata as any).blockedStatusCodes
+        .map((value: unknown) => Number(value))
+        .filter((value: number) => Number.isFinite(value) && value > 0)
+    : [];
+  const blockedStatusCodes = new Set<number>(
+    statusCodesFromMetadata.length > 0
+      ? statusCodesFromMetadata
+      : [401, 403, 407, 409, 423, 429, 444, 451, 500, 502, 503, 504, 520, 521, 522, 523, 524, 530]
+  );
+
+  const compilePatterns = (rawValues: unknown, fallback: RegExp[]): RegExp[] => {
+    if (!Array.isArray(rawValues) || rawValues.length === 0) return fallback;
+    const out: RegExp[] = [];
+    for (const rawValue of rawValues) {
+      if (rawValue instanceof RegExp) {
+        out.push(rawValue);
+        continue;
+      }
+      if (typeof rawValue !== "string") continue;
+      const trimmed = rawValue.trim();
+      if (!trimmed) continue;
+      try {
+        out.push(new RegExp(trimmed, "i"));
+      } catch {
+        // skip invalid regex
+      }
+    }
+    return out.length > 0 ? out : fallback;
+  };
+
+  const blockedPatterns = compilePatterns((metadata as any).blockedPatterns, defaultBlockedPatterns);
+  const blockedStrongPatterns = compilePatterns((metadata as any).blockedStrongPatterns, defaultBlockedStrongPatterns);
+
+  return {
+    sessionEnabled,
+    sessionKey,
+    sessionTtlMs: Math.max(30_000, Math.floor(sessionTtlMs)),
+    sessionMaxUses: Math.max(1, Math.floor(sessionMaxUses)),
+    proxies,
+    maxAttempts,
+    rotateOnBlocked,
+    blockedStatusCodes,
+    blockedPatterns,
+    blockedStrongPatterns
+  };
+};
+
+const buildSessionPoolKey = (
+  host: string,
+  policy: BrowserExecutionPolicy,
+  proxy: NormalizedProxyCandidate | undefined
+): string => {
+  const proxyKey = proxy ? proxy.key : "no-proxy";
+  return `${toSafeSegment(policy.sessionKey)}::${toSafeSegment(host)}::${toSafeSegment(proxyKey)}`;
+};
+
+const applyProxyAuthIfNeeded = async (
+  page: Page,
+  proxy: NormalizedProxyCandidate | undefined
+): Promise<void> => {
+  if (!proxy || !proxy.username) return;
+  await page.authenticate({
+    username: proxy.username,
+    password: proxy.password || ""
+  });
+};
+
+const classifyBlockedNavigation = async (params: {
+  page: Page;
+  status?: number;
+  policy: BrowserExecutionPolicy;
+}): Promise<{ blocked: boolean; reason?: string; signals: string[] }> => {
+  const signals: string[] = [];
+  const status = Number(params.status);
+  if (Number.isFinite(status) && params.policy.blockedStatusCodes.has(status)) {
+    signals.push(`status:${status}`);
+  }
+
+  let title = "";
+  try {
+    title = (await params.page.title()) || "";
+  } catch {
+    // best effort
+  }
+
+  let contentSample = "";
+  try {
+    const html = await params.page.content();
+    contentSample = html.slice(0, 30_000);
+  } catch {
+    // best effort
+  }
+
+  const combined = `${title}\n${contentSample}`;
+  const normalized = combined.toLowerCase();
+
+  let softHits = 0;
+  let strongHits = 0;
+  for (const pattern of params.policy.blockedPatterns) {
+    if (pattern.test(normalized)) {
+      softHits += 1;
+      signals.push(`pattern:${pattern.source}`);
+    }
+  }
+  for (const pattern of params.policy.blockedStrongPatterns) {
+    if (pattern.test(normalized)) {
+      strongHits += 1;
+      signals.push(`strong:${pattern.source}`);
+    }
+  }
+
+  const blockedByStatus = Number.isFinite(status) && params.policy.blockedStatusCodes.has(status);
+  const blockedBySignals = strongHits > 0 || softHits >= 2;
+  const blocked = blockedByStatus || blockedBySignals;
+  if (!blocked) return { blocked: false, signals };
+
+  const reasonParts: string[] = [];
+  if (blockedByStatus) reasonParts.push(`status ${status}`);
+  if (strongHits > 0) reasonParts.push(`strong-signals ${strongHits}`);
+  if (softHits > 0) reasonParts.push(`signals ${softHits}`);
+  const reason = `Blocked page detected (${reasonParts.join(", ")}).`;
+  return { blocked: true, reason, signals };
+};
+
+class RotateProxyAttemptError extends Error {
+  nextAttempt: number;
+
+  constructor(message: string, nextAttempt: number) {
+    super(message);
+    this.name = "RotateProxyAttemptError";
+    this.nextAttempt = nextAttempt;
+  }
+}
 const resolveBrowserExecutablePath = (): string | undefined => {
   // Keep local browser usage opt-in to preserve stable background behavior.
   const envCandidates = [
@@ -202,6 +504,18 @@ const extractTargetTokens = (request: BrowserRequest): string[] => {
     add(profile.familyDisplay as string);
     add(profile.familyPostscript as string);
     add(profile.targetSlug as string);
+    const selectedSourceFamilies = Array.isArray(profile.selectedSourceFamilies)
+      ? profile.selectedSourceFamilies
+      : [];
+    for (const sourceFamily of selectedSourceFamilies) {
+      add(sourceFamily);
+    }
+    const expectedAssetTokens = Array.isArray(profile.expectedAssetTokens)
+      ? profile.expectedAssetTokens
+      : [];
+    for (const token of expectedAssetTokens) {
+      add(token);
+    }
     const profileFamilyToken = sanitizeToken(
       String(profile.familyPostscript || profile.familyDisplay || profile.family || "")
     );
@@ -272,10 +586,19 @@ const extractTargetTokens = (request: BrowserRequest): string[] => {
 const shouldApplyTokenFilter = (host: string): boolean =>
   host.includes("205.tf") ||
   host.includes("abcdinamo.com") ||
+  host.includes("abjadfonts.com") ||
   host.includes("lineto.com") ||
   host.includes("pangrampangram.com") ||
   host.includes("grillitype.com") ||
-  host.includes("gt-type.com");
+  host.includes("klim.co.nz") ||
+  host.includes("gt-type.com") ||
+  host.includes("wtypefoundry.com") ||
+  host.includes("superiortype.com") ||
+  host.includes("type.hanli.eu") ||
+  host.includes("narrowtype.com") ||
+  host.includes("productiontype.com") ||
+  host.includes("typefaces.pizza") ||
+  host.includes("nuformtype.com");
 
 const is205CoreHashedAsset = (url: string): boolean =>
   /\/(?:pf|f)-[0-9a-f]{24,}(?:\.[a-z0-9]+)?(?:[?#]|$)/i.test(url || "");
@@ -455,9 +778,9 @@ const decodeLinetoGatePayload = (
 };
 
 const makeJobFolder = (request: BrowserRequest): string => {
-  const baseRoot = getBaseDownloadRoot();
+  const baseRoot = request.outputFolder && request.outputFolder.trim() ? getBaseDownloadRoot() : getStagingRoot();
   if (request.outputFolder && request.outputFolder.trim()) {
-    return joinOpaquePath(baseRoot, toSafeSegment(request.outputFolder));
+    return joinOpaquePath(baseRoot, toSafeOutputFolderPath(request.outputFolder));
   }
   const finalize = (candidate: string): string => ensureUniqueDirPath(candidate);
 
@@ -538,6 +861,14 @@ const normalizePangramBaseName = (base: string, targetSlug?: string): string => 
     }
   }
 
+  return out || base;
+};
+
+const normalizeKlimBaseName = (base: string): string => {
+  let out = (base || "").replace(/_/g, "-");
+  out = out.replace(/-[A-Za-z0-9]{6,10}$/g, "");
+  out = out.replace(/-[0-9a-f]{12,}$/gi, "");
+  out = out.replace(/-+/g, "-").replace(/^-+|-+$/g, "");
   return out || base;
 };
 
@@ -787,6 +1118,160 @@ const resolve205MappedBaseName = (
   return undefined;
 };
 
+type HanliStyleMapEntry = {
+  styleName: string;
+  familyName?: string;
+  fontStyle?: string;
+  fontWeight?: string;
+};
+
+const normalizeAssetUrlKey = (value: string): string => {
+  try {
+    const parsed = new URL(value);
+    parsed.hash = "";
+    parsed.search = "";
+    return `${parsed.origin}${parsed.pathname}`.toLowerCase();
+  } catch {
+    return String(value || "")
+      .split("?")[0]
+      .split("#")[0]
+      .toLowerCase();
+  }
+};
+
+const parseCssDeclarationValue = (cssBlock: string, property: string): string | undefined => {
+  const re = new RegExp(`${property}\\s*:\\s*([^;]+);?`, "i");
+  const match = cssBlock.match(re);
+  const value = asString(match?.[1]);
+  if (!value) return undefined;
+  return value
+    .replace(/^['"]|['"]$/g, "")
+    .replace(/&quot;/gi, '"')
+    .trim();
+};
+
+const buildHanliStyleMap = (captured: CapturedAsset[]): Map<string, HanliStyleMapEntry> => {
+  const out = new Map<string, HanliStyleMapEntry>();
+
+  for (const asset of captured) {
+    if (asset.kind !== "metadata") continue;
+
+    const urlLower = (asset.url || "").toLowerCase();
+    if (!urlLower.includes("fonts.fontdue.com/")) continue;
+    if (!urlLower.includes("/css/")) continue;
+    if (!urlLower.includes(".css")) continue;
+
+    const cssText = asset.buffer.toString("utf8");
+    if (!cssText.includes("@font-face")) continue;
+
+    const blocks = cssText.match(/@font-face\s*\{[\s\S]*?\}/gi) || [];
+    for (const block of blocks) {
+      const familyNameRaw = parseCssDeclarationValue(block, "font-family");
+      if (!familyNameRaw) continue;
+      const familyName = familyNameRaw.replace(/\s+/g, " ").trim();
+      if (!familyName) continue;
+
+      const fontStyle = parseCssDeclarationValue(block, "font-style");
+      const fontWeight = parseCssDeclarationValue(block, "font-weight");
+
+      let styleName = familyName;
+      if (fontStyle && /italic|oblique/i.test(fontStyle) && !/italic|oblique/i.test(styleName)) {
+        styleName = `${styleName} Italic`.replace(/\s+/g, " ").trim();
+      }
+
+      const srcValue = parseCssDeclarationValue(block, "src") || "";
+      const srcMatches = srcValue.match(/url\(([^)]+)\)/gi) || [];
+      for (const srcMatch of srcMatches) {
+        const rawUrl = asString(srcMatch.match(/url\(([^)]+)\)/i)?.[1]);
+        if (!rawUrl) continue;
+
+        const cleaned = rawUrl
+          .replace(/^['"]|['"]$/g, "")
+          .replace(/\\\//g, "/")
+          .trim();
+
+        let absolute = "";
+        try {
+          absolute = cleaned.startsWith("http://") || cleaned.startsWith("https://") ? new URL(cleaned).href : new URL(cleaned, asset.url).href;
+        } catch {
+          continue;
+        }
+
+        const absoluteLower = absolute.toLowerCase();
+        if (!absoluteLower.includes("fonts.fontdue.com/hanli/fonts/")) continue;
+
+        const key = normalizeAssetUrlKey(absolute);
+        if (!key) continue;
+        if (!out.has(key)) {
+          out.set(key, {
+            styleName,
+            familyName,
+            fontStyle,
+            fontWeight
+          });
+        }
+      }
+    }
+  }
+
+  return out;
+};
+
+const resolveHanliMappedStyleName = (
+  assetUrl: string,
+  styleMap: Map<string, HanliStyleMapEntry>
+): string | undefined => {
+  if (styleMap.size === 0) return undefined;
+
+  const direct = styleMap.get(normalizeAssetUrlKey(assetUrl));
+  if (direct?.styleName) return direct.styleName;
+
+  let fileName = "";
+  try {
+    fileName = path.basename(new URL(assetUrl).pathname).toLowerCase();
+  } catch {
+    fileName = path.basename(assetUrl).toLowerCase();
+  }
+  if (!fileName) return undefined;
+
+  for (const [key, value] of styleMap.entries()) {
+    if (key.endsWith(`/${fileName}`) && value.styleName) {
+      return value.styleName;
+    }
+  }
+
+  return undefined;
+};
+
+const selectHanliCandidateStreams = (
+  candidates: CapturedAsset[],
+  styleMap: Map<string, HanliStyleMapEntry>
+): CapturedAsset[] => {
+  if (candidates.length === 0) return [];
+  if (styleMap.size === 0) return candidates;
+
+  const chosenByStyleAndExt = new Map<string, CapturedAsset>();
+  const passthrough: CapturedAsset[] = [];
+
+  for (const asset of candidates) {
+    const ext = detectFontExt(asset.buffer, asset.contentType, asset.url);
+    const mappedStyle = resolveHanliMappedStyleName(asset.url, styleMap);
+    const styleToken = mappedStyle ? normalizeCoverageToken(mappedStyle) : "";
+    if (!ext || !styleToken) {
+      passthrough.push(asset);
+      continue;
+    }
+
+    const key = `${styleToken}|${ext}`;
+    const previous = chosenByStyleAndExt.get(key);
+    if (!previous || asset.buffer.length < previous.buffer.length) {
+      chosenByStyleAndExt.set(key, asset);
+    }
+  }
+
+  return [...passthrough, ...Array.from(chosenByStyleAndExt.values())];
+};
+
 const buildTargetCoverageAudit = async (params: {
   request: BrowserRequest;
   host: string;
@@ -889,15 +1374,29 @@ const buildTargetCoverageAudit = async (params: {
         extractStyleFromPostscript(postscriptName),
         entryFileName
       );
-      if (isCoverageNoiseStyle(styleFromPs)) continue;
-      const styleToken = normalizeCoverageToken(styleFromPs);
-      if (styleToken && !observedStyles.has(styleToken)) observedStyles.set(styleToken, styleFromPs);
+      if (!isCoverageNoiseStyle(styleFromPs)) {
+        const styleToken = normalizeCoverageToken(styleFromPs);
+        if (styleToken && !observedStyles.has(styleToken)) observedStyles.set(styleToken, styleFromPs);
+      }
     }
     if (subfamilyName) {
       const normalizedSubfamily = normalizeItalicStyleLabel(subfamilyName, entryFileName);
-      if (isCoverageNoiseStyle(normalizedSubfamily)) continue;
-      const subToken = normalizeCoverageToken(normalizedSubfamily);
-      if (subToken && !observedStyles.has(subToken)) observedStyles.set(subToken, normalizedSubfamily);
+      if (!isCoverageNoiseStyle(normalizedSubfamily)) {
+        const subToken = normalizeCoverageToken(normalizedSubfamily);
+        if (subToken && !observedStyles.has(subToken)) observedStyles.set(subToken, normalizedSubfamily);
+      }
+    }
+
+    if (profileSourceToken.includes("hanli-wordpress-fontdue-css") && normalizedExpectedStyles.size > 0) {
+      const fileStemToken = normalizeCoverageToken(entryFileName.replace(/.[^.]+$/, ""));
+      if (fileStemToken) {
+        for (const [expectedToken, expectedStyle] of normalizedExpectedStyles.entries()) {
+          if (!fileStemToken.includes(expectedToken)) continue;
+          if (!observedStyles.has(expectedToken)) {
+            observedStyles.set(expectedToken, expectedStyle);
+          }
+        }
+      }
     }
   }
   const observedPostscriptTokens = Array.from(observedPostscript.keys());
@@ -996,11 +1495,17 @@ const buildTargetCoverageAudit = async (params: {
   const matchedStyleCount = Math.max(0, expectedStyleCount - missingStyles.length);
   const styleAccuracyPct =
     expectedStyleCount > 0 ? Number(((matchedStyleCount / expectedStyleCount) * 100).toFixed(2)) : undefined;
+  const strictMissingStyles = profile?.strictMissingStyles === true;
+  const contaminationRatio = totalFonts > 0 ? contaminationFonts / totalFonts : 0;
 
   let status: "pass" | "warn" | "fail" = "pass";
   if (validationStatus === "fail") {
     status = "fail";
+  } else if (strictMissingStyles && expectedStyleCount === 0 && observedStyleCount > 0) {
+    status = "fail";
   } else if (expectedStyleCount > 0 && matchedStyleCount === 0) {
+    status = "fail";
+  } else if (contaminationFonts > 0 && contaminationRatio >= 0.3) {
     status = "fail";
   } else if (
     missingStyles.length > 0 ||
@@ -1026,6 +1531,7 @@ const buildTargetCoverageAudit = async (params: {
       familyDisplay: asString(profile?.familyDisplay) || asString(profile?.family),
       familyPostscript: asString(profile?.familyPostscript),
       targetSlug: asString(profile?.targetSlug),
+      strictMissingStyles,
       catalogExpectedStyleCount: catalogExpectedStyles.length,
       catalogExpectedPostscriptCount: catalogExpectedPostscriptNames.length
     },
@@ -1061,6 +1567,7 @@ const buildTargetCoverageAudit = async (params: {
       subsettedFonts,
       invalidFonts,
       contaminationFonts,
+      contaminationRatio: Number(contaminationRatio.toFixed(4)),
       italicMismatches,
       nameTableBadFonts,
       averageGlyphs,
@@ -1104,8 +1611,22 @@ const buildQualityAuditFromTargetCoverage = (
   const warnReasons: string[] = [];
   if (status === "fail") {
     const missingStyles = Array.isArray((targetAudit as any).missingStyles) ? (targetAudit as any).missingStyles : [];
+    const strictMissingStyles = Boolean((profile as any).strictMissingStyles);
+    const contaminationFonts = Number((validationSnapshot as any).contaminationFonts);
+    const contaminationRatio = Number((validationSnapshot as any).contaminationRatio);
     if (missingStyles.length > 0) {
       failReasons.push(`missing styles: ${missingStyles.join(", ")}`);
+    } else if (strictMissingStyles && expectedStyleCount === 0 && observedStyleCount > 0) {
+      failReasons.push("strict style profile is empty while observed fonts exist");
+    } else if (
+      Number.isFinite(contaminationFonts) &&
+      Number.isFinite(contaminationRatio) &&
+      contaminationFonts > 0 &&
+      contaminationRatio >= 0.3
+    ) {
+      failReasons.push(
+        `contamination too high: ${contaminationFonts} files (${(contaminationRatio * 100).toFixed(1)}%)`
+      );
     } else {
       failReasons.push("target coverage gate marked this run as fail");
     }
@@ -1737,7 +2258,7 @@ const navigateWithRetry = async (
   page: Page,
   targetUrl: string,
   logProgress: (message: string) => Promise<void>
-): Promise<void> => {
+): Promise<{ status?: number; finalUrl: string }> => {
   const attempts: Array<{ waitUntil: "domcontentloaded" | "networkidle2"; timeout: number }> = [
     { waitUntil: "domcontentloaded", timeout: 60000 },
     { waitUntil: "networkidle2", timeout: 90000 },
@@ -1748,9 +2269,12 @@ const navigateWithRetry = async (
   for (let i = 0; i < attempts.length; i += 1) {
     const attempt = attempts[i];
     try {
-      await page.goto(targetUrl, { waitUntil: attempt.waitUntil, timeout: attempt.timeout });
+      const response = await page.goto(targetUrl, { waitUntil: attempt.waitUntil, timeout: attempt.timeout });
       await new Promise((resolve) => setTimeout(resolve, 1500));
-      return;
+      return {
+        status: response?.status(),
+        finalUrl: page.url()
+      };
     } catch (error) {
       lastError = error;
       const reason = error instanceof Error ? error.message : String(error);
@@ -1768,6 +2292,16 @@ const navigateWithRetry = async (
 export const runBrowserIntercept = async (request: BrowserRequest): Promise<DownloadResult> => {
   const outputDir = makeJobFolder(request);
   const host = new URL(request.targetUrl).host.toLowerCase();
+  const policy = resolveBrowserExecutionPolicy(request);
+  const requestMetadata = isRecord(request.metadata) ? request.metadata : {};
+  const proxyAttemptRaw = asNumber((requestMetadata as any)._proxyAttempt);
+  const proxyAttempt = Number.isFinite(proxyAttemptRaw) ? Math.max(0, Math.floor(proxyAttemptRaw as number)) : 0;
+  const maxProxyAttempts = Math.max(1, Math.min(policy.maxAttempts, policy.proxies.length || 1));
+  const activeProxy = policy.proxies.length > 0 ? policy.proxies[Math.min(proxyAttempt, policy.proxies.length - 1)] : undefined;
+  const hasNextProxyAttempt =
+    policy.rotateOnBlocked &&
+    policy.proxies.length > 0 &&
+    proxyAttempt + 1 < Math.min(policy.proxies.length, maxProxyAttempts);
   const targetTokens = extractTargetTokens(request);
   const tf205StyleMap = host.includes("205.tf") ? build205StyleMap(request) : new Map<string, TF205StyleMapEntry>();
   const targetSlug = extractTargetSlug(request.targetUrl);
@@ -1783,6 +2317,11 @@ export const runBrowserIntercept = async (request: BrowserRequest): Promise<Down
     const token = normalizeCoverageToken(value);
     return Boolean(token) && linetoExpectedPostscriptTokens.has(token);
   };
+  const hanliExpectedStyleTokens = new Set(
+    (host.includes("type.hanli.eu") ? asStringArray(targetProfile?.expectedStyles) : [])
+      .map((value) => normalizeCoverageToken(value))
+      .filter(Boolean)
+  );
 
   await mkdir(outputDir, { recursive: true });
 
@@ -1792,7 +2331,12 @@ export const runBrowserIntercept = async (request: BrowserRequest): Promise<Down
   const seenHashes = new Set<string>();
   const seenPaths = new Set<string>();
   const linetoSessionPostscriptNames = new Set<string>();
+  let hanliStyleMap = new Map<string, HanliStyleMapEntry>();
   let browser: Browser | null = null;
+  let shouldDiscardSession = false;
+  let sessionHandle:
+    | Awaited<ReturnType<typeof acquireBrowserSession>>
+    | null = null;
   let page: Page | null = null;
   let interceptor: InterceptionService | null = null;
 
@@ -1805,6 +2349,15 @@ export const runBrowserIntercept = async (request: BrowserRequest): Promise<Down
 
   try {
     await logProgress(`Connecting to ${request.targetUrl}...`);
+    if (activeProxy) {
+      await logProgress(
+        `[Proxy] attempt ${proxyAttempt + 1}/${maxProxyAttempts} using ${activeProxy.label}`
+      );
+    } else if (policy.proxies.length > 0) {
+      await logProgress(
+        `[Proxy] attempt ${proxyAttempt + 1}/${maxProxyAttempts} has no usable proxy candidate; continuing without proxy.`
+      );
+    }
     const baseLaunchOptions = {
       headless: true,
       args: [
@@ -1815,6 +2368,9 @@ export const runBrowserIntercept = async (request: BrowserRequest): Promise<Down
         "--window-size=1920,1080"
       ]
     };
+    if (activeProxy?.server) {
+      baseLaunchOptions.args.push(`--proxy-server=${activeProxy.server}`);
+    }
 
     const preferredExecutablePath = resolveBrowserExecutablePath();
     const launchCandidates: Array<{ label: string; executablePath?: string }> = [
@@ -1827,34 +2383,45 @@ export const runBrowserIntercept = async (request: BrowserRequest): Promise<Down
       });
     }
 
-    let launchError: unknown;
-    for (let attempt = 0; attempt < launchCandidates.length; attempt += 1) {
-      const candidate = launchCandidates[attempt];
-      const launchOptions: Record<string, unknown> = { ...baseLaunchOptions };
-      if (candidate.executablePath) {
-        launchOptions.executablePath = candidate.executablePath;
-      }
+    const launchBrowser = async (): Promise<Browser> => {
+      let launchError: unknown;
+      for (let attempt = 0; attempt < launchCandidates.length; attempt += 1) {
+        const candidate = launchCandidates[attempt];
+        const launchOptions: Record<string, unknown> = { ...baseLaunchOptions };
+        if (candidate.executablePath) {
+          launchOptions.executablePath = candidate.executablePath;
+        }
 
-      try {
-        await logProgress(`[Launch] Trying ${candidate.label}...`);
-        browser = await puppeteer.launch(launchOptions as any);
-        await logProgress(`[Launch] Browser started via ${candidate.label}.`);
-        launchError = undefined;
-        break;
-      } catch (error) {
-        launchError = error;
-        const reason = error instanceof Error ? error.message : String(error);
-        await logProgress(`[Launch] ${candidate.label} failed (${reason}).`);
+        try {
+          await logProgress(`[Launch] Trying ${candidate.label}...`);
+          const launched = await puppeteer.launch(launchOptions as any);
+          await logProgress(`[Launch] Browser started via ${candidate.label}.`);
+          return launched;
+        } catch (error) {
+          launchError = error;
+          const reason = error instanceof Error ? error.message : String(error);
+          await logProgress(`[Launch] ${candidate.label} failed (${reason}).`);
+        }
       }
-    }
-
-    if (!browser) {
       throw launchError instanceof Error ? launchError : new Error("Unable to launch browser.");
-    }
+    };
+
+    sessionHandle = await acquireBrowserSession({
+      key: buildSessionPoolKey(host, policy, activeProxy),
+      createBrowser: launchBrowser,
+      enabled: policy.sessionEnabled,
+      maxUses: policy.sessionMaxUses,
+      ttlMs: policy.sessionTtlMs
+    });
+    browser = sessionHandle.browser;
+    await logProgress(
+      `[Session] ${sessionHandle.reused ? "reused" : "created"} browser session key=${sessionHandle.key}`
+    );
 
     page = await browser.newPage();
     await page.setUserAgent(BROWSER_UA);
     await page.setViewport({ width: 1920, height: 1080 });
+    await applyProxyAuthIfNeeded(page, activeProxy);
 
     interceptor = new InterceptionService();
     interceptor.on("font-captured", (event: any) => {
@@ -1879,7 +2446,26 @@ export const runBrowserIntercept = async (request: BrowserRequest): Promise<Down
     });
     await interceptor.attach(page);
 
-    await navigateWithRetry(page, request.targetUrl, logProgress);
+    const navigation = await navigateWithRetry(page, request.targetUrl, logProgress);
+    const blockedDecision = await classifyBlockedNavigation({
+      page,
+      status: navigation.status,
+      policy
+    });
+    if (blockedDecision.blocked) {
+      shouldDiscardSession = true;
+      const blockedMessage = blockedDecision.reason || "Blocked page detected.";
+      await logProgress(
+        `[Blocked] ${blockedMessage} ${
+          blockedDecision.signals.length > 0 ? `(signals: ${blockedDecision.signals.join(", ")})` : ""
+        }`
+      );
+
+      if (hasNextProxyAttempt) {
+        throw new RotateProxyAttemptError(blockedMessage, proxyAttempt + 1);
+      }
+      throw new Error(`Blocked while opening ${request.targetUrl}: ${blockedMessage}`);
+    }
 
     if (request.injectScript && request.injectScript.trim()) {
       await logProgress("Injecting provocation script...");
@@ -1917,7 +2503,12 @@ export const runBrowserIntercept = async (request: BrowserRequest): Promise<Down
 
     await waitForCaptureStability(captured);
 
-    const candidates = captured.filter((asset) => {
+    if (host.includes("type.hanli.eu")) {
+      hanliStyleMap = buildHanliStyleMap(captured);
+      await logProgress("[Hanli] Parsed " + hanliStyleMap.size + " mapped font URLs from captured Fontdue CSS.");
+    }
+
+    const rawCandidates = captured.filter((asset) => {
       const ext = detectFontExt(asset.buffer, asset.contentType, asset.url);
       if (ext) return true;
       if (host.includes("lineto.com")) {
@@ -1926,6 +2517,14 @@ export const runBrowserIntercept = async (request: BrowserRequest): Promise<Down
       }
       return false;
     });
+    const candidates = host.includes("type.hanli.eu")
+      ? selectHanliCandidateStreams(rawCandidates, hanliStyleMap)
+      : rawCandidates;
+    if (candidates.length !== rawCandidates.length) {
+      await logProgress(
+        `[Hanli] Candidate stream dedupe: ${rawCandidates.length} -> ${candidates.length} (style+format smallest payload).`
+      );
+    }
     await logProgress(`Captured ${candidates.length} candidate font streams.`);
 
     for (const asset of candidates) {
@@ -2107,6 +2706,56 @@ export const runBrowserIntercept = async (request: BrowserRequest): Promise<Down
         continue;
       }
 
+      const mapped205Base = host.includes("205.tf") ? resolve205MappedBaseName(asset.url, tf205StyleMap) : undefined;
+      const mappedHanliStyle = host.includes("type.hanli.eu")
+        ? resolveHanliMappedStyleName(asset.url, hanliStyleMap)
+        : undefined;
+      const is205HashedAsset = host.includes("205.tf") && is205CoreHashedAsset(asset.url);
+      const has205StyleMap = tf205StyleMap.size > 0;
+      if (is205HashedAsset && has205StyleMap && !mapped205Base) {
+        skipped.push({
+          index: skipped.length,
+          reason: "Filtered 205TF hashed asset without matching target style-map entry.",
+          name: asset.url
+        });
+        continue;
+      }
+
+      if (host.includes("type.hanli.eu") && hanliExpectedStyleTokens.size > 0) {
+        const mappedToken = mappedHanliStyle ? normalizeCoverageToken(mappedHanliStyle) : "";
+        if (!mappedToken) {
+          skipped.push({
+            index: skipped.length,
+            reason: "Filtered Hanli hashed asset without matching Fontdue style-map entry.",
+            name: asset.url
+          });
+          continue;
+        }
+        if (!hanliExpectedStyleTokens.has(mappedToken)) {
+          skipped.push({
+            index: skipped.length,
+            reason: "Filtered Hanli style outside expected profile: " + mappedHanliStyle,
+            name: asset.url
+          });
+          continue;
+        }
+      }
+
+      const tokenMatched =
+        assetMatchesTokens(asset.url, targetTokens) ||
+        (mapped205Base ? assetMatchesTokens(mapped205Base, targetTokens) : false) ||
+        (mappedHanliStyle ? assetMatchesTokens(mappedHanliStyle, targetTokens) : false);
+      const bypassTokenFilter = is205HashedAsset && !has205StyleMap;
+      if (
+        shouldApplyTokenFilter(host) &&
+        targetTokens.length > 0 &&
+        !bypassTokenFilter &&
+        !tokenMatched
+      ) {
+        skipped.push({ index: skipped.length, reason: "Filtered as likely contamination (target token mismatch).", name: asset.url });
+        continue;
+      }
+
       const hash = crypto.createHash("sha256").update(asset.buffer).digest("hex");
       if (seenHashes.has(hash)) {
         skipped.push({ index: skipped.length, reason: "Duplicate stream hash.", name: asset.url });
@@ -2114,21 +2763,15 @@ export const runBrowserIntercept = async (request: BrowserRequest): Promise<Down
       }
       seenHashes.add(hash);
 
-      const bypassTokenFilter = host.includes("205.tf") && is205CoreHashedAsset(asset.url);
-      if (
-        shouldApplyTokenFilter(host) &&
-        targetTokens.length > 0 &&
-        !bypassTokenFilter &&
-        !assetMatchesTokens(asset.url, targetTokens)
-      ) {
-        skipped.push({ index: skipped.length, reason: "Filtered as likely contamination (target token mismatch).", name: asset.url });
-        continue;
-      }
-
-      const mapped205Base = host.includes("205.tf") ? resolve205MappedBaseName(asset.url, tf205StyleMap) : undefined;
-      let base = mapped205Base || extractBaseNameFromUrl(asset.url).replace(/\.[^.]+$/, "") || shortHash(asset.buffer);
+      let base =
+        mapped205Base ||
+        mappedHanliStyle ||
+        extractBaseNameFromUrl(asset.url).replace(/\.[^.]+$/, "") ||
+        shortHash(asset.buffer);
       if (host.includes("pangrampangram.com")) {
         base = normalizePangramBaseName(base, targetSlug);
+      } else if (host.includes("klim.co.nz")) {
+        base = normalizeKlimBaseName(base);
       }
       const fileName = toSafeFileName(base) + ext;
       const filePath = ensureUniqueFilePath(outputDir, fileName);
@@ -2183,7 +2826,30 @@ export const runBrowserIntercept = async (request: BrowserRequest): Promise<Down
       }
     }
 
+    let pureSuccessLogPath: string | undefined;
+    let pureSuccessAudit: Record<string, unknown> | undefined;
+    try {
+      await logProgress("[Pure Success] Running self-heal protocol...");
+      const pureSuccess = await runPureSuccessProtocol({
+        outputDir,
+        downloaded,
+        foundry: host,
+        family: targetSlug
+      });
+      pureSuccessAudit = pureSuccess as unknown as Record<string, unknown>;
+      const pureSuccessPath = path.join(outputDir, "pure-success-log.json");
+      await writeFile(pureSuccessPath, JSON.stringify(pureSuccess, null, 2), "utf8");
+      pureSuccessLogPath = toRelative(pureSuccessPath);
+      await logProgress(
+        `[Pure Success] status=${pureSuccess.status} missing_before=${pureSuccess.missingFormatsBefore.length} missing_after=${pureSuccess.missingFormatsAfter.length}`
+      );
+    } catch {
+      // best-effort
+    }
+
     let validationLogPath: string | undefined;
+    let technicalQaLogPath: string | undefined;
+    let technicalQaAudit: Record<string, unknown> | undefined;
     try {
       await logProgress("[Audit] Running validation...");
       const validation = await runValidationLog({ outputDir, tokens: targetTokens });
@@ -2203,6 +2869,15 @@ export const runBrowserIntercept = async (request: BrowserRequest): Promise<Down
           validationLogPath = toRelative(rerun.outputPath);
         }
       }
+    } catch {
+      // best-effort
+    }
+
+    try {
+      await logProgress("[Audit] Running technical QA...");
+      const technicalQa = await runTechnicalQa({ outputDir });
+      technicalQaLogPath = toRelative(technicalQa.outputPath);
+      technicalQaAudit = technicalQa.audit;
     } catch {
       // best-effort
     }
@@ -2289,13 +2964,31 @@ export const runBrowserIntercept = async (request: BrowserRequest): Promise<Down
       qualityLogPath,
       qualityAudit,
       specimenLogPath,
-      specimenAudit
+      specimenAudit,
+      pureSuccessLogPath,
+      pureSuccessAudit,
+      technicalQaLogPath,
+      technicalQaAudit
     };
 
     await writeFile(path.join(outputDir, "browser-log.json"), JSON.stringify(result, null, 2), "utf8");
     await writeFile(path.join(outputDir, "download-log.json"), JSON.stringify(result, null, 2), "utf8");
     return result;
   } catch (error) {
+    if (error instanceof RotateProxyAttemptError) {
+      const nextMetadata = {
+        ...(requestMetadata as Record<string, unknown>),
+        _proxyAttempt: error.nextAttempt
+      };
+      await logProgress(
+        `[Proxy] rotating proxy due to blocked detection (next attempt ${error.nextAttempt + 1}/${maxProxyAttempts}).`
+      );
+      return runBrowserIntercept({
+        ...request,
+        metadata: nextMetadata
+      });
+    }
+
     const reason = error instanceof Error ? error.message : String(error);
     const browserMissing = /could not find chrome|failed to launch the browser process|browser was not found/i.test(
       reason
@@ -2310,10 +3003,22 @@ export const runBrowserIntercept = async (request: BrowserRequest): Promise<Down
     if (interceptor && page) {
       await interceptor.detach(page).catch(() => undefined);
     }
-    if (browser) {
+    if (page) {
+      await page.close().catch(() => undefined);
+    }
+    if (sessionHandle) {
+      await sessionHandle.release({ discard: shouldDiscardSession }).catch(() => undefined);
+      sessionHandle = null;
+      browser = null;
+    } else if (browser) {
       await browser.close().catch(() => undefined);
+      browser = null;
     }
   }
 };
 
 export default runBrowserIntercept;
+
+
+
+

@@ -1,4 +1,4 @@
-import { Scraper, ScrapeResult } from "./types";
+import { FontMetadata, Scraper, ScrapeResult } from "./scraper-protocol";
 
 const DEFAULT_FAMILY = "MM205 Var";
 const CANONICAL_HOST = "www.205.tf";
@@ -23,6 +23,7 @@ const RESERVED_ROOT_PATHS = new Set([
 ]);
 const BROWSER_UA =
   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36";
+const BACK205_ORIGIN = "https://back.205.tf";
 
 const toReadableFamily = (value: string): string =>
   value
@@ -197,6 +198,136 @@ const fetch205TargetProfile = async (
   }
 };
 
+const merge205TargetProfiles = (
+  profiles: Array<Record<string, unknown>>,
+  familyName: string,
+  targetSlug?: string
+): Record<string, unknown> | undefined => {
+  if (!Array.isArray(profiles) || profiles.length === 0) return undefined;
+
+  const styleMapByFile = new Map<string, Record<string, unknown>>();
+  const expectedStyles: string[] = [];
+  const expectedPostscriptNames: string[] = [];
+  let familyPostscript: string | undefined;
+
+  for (const profile of profiles) {
+    const styleMap = Array.isArray(profile.styleMap) ? profile.styleMap : [];
+    for (const row of styleMap) {
+      if (!row || typeof row !== "object") continue;
+      const fontFile = String((row as any).fontFile || "").trim();
+      if (!fontFile) continue;
+      if (!styleMapByFile.has(fontFile)) styleMapByFile.set(fontFile, row as Record<string, unknown>);
+
+      const styleName = String((row as any).styleName || "").trim();
+      if (styleName && !expectedStyles.includes(styleName)) expectedStyles.push(styleName);
+
+      const postscriptName = String((row as any).postscriptName || "").trim();
+      if (postscriptName && !expectedPostscriptNames.includes(postscriptName)) expectedPostscriptNames.push(postscriptName);
+      if (!familyPostscript && postscriptName.includes("-")) {
+        familyPostscript = postscriptName.split("-")[0];
+      }
+    }
+
+    if (!familyPostscript) {
+      const profileFamilyPostscript = String((profile as any).familyPostscript || "").trim();
+      if (profileFamilyPostscript) familyPostscript = profileFamilyPostscript;
+    }
+  }
+
+  if (styleMapByFile.size === 0) return undefined;
+
+  return {
+    profileId: `205tf-${targetSlug || "target"}-collection`,
+    source: "205tf-rsc-merged",
+    family: familyName,
+    familyDisplay: familyName,
+    familyPostscript,
+    targetSlug,
+    expectedStyles,
+    expectedPostscriptNames,
+    styleMap: Array.from(styleMapByFile.values())
+  };
+};
+
+const toReadablePostscriptFamily = (postscriptName: string, fallbackFamily: string): string => {
+  const prefix = String(postscriptName || "").split("-")[0] || "";
+  if (!prefix) return fallbackFamily;
+  const withSpaces = prefix
+    .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
+    .replace(/([A-Z])([A-Z][a-z])/g, "$1 $2")
+    .replace(/[-_]+/g, " ")
+    .trim();
+  return withSpaces || fallbackFamily;
+};
+
+const toDirect205EncfileUrl = (fontFile: string): string | undefined => {
+  const file = String(fontFile || "").trim().replace(/^\/+/, "");
+  if (!file) return undefined;
+  if (/^https?:\/\//i.test(file)) return file;
+  if (!/\.(woff2?|ttf|otf)$/i.test(file)) return undefined;
+  return `${BACK205_ORIGIN}/encfiles/${file}`;
+};
+
+const buildDirect205FontsFromProfile = (params: {
+  targetProfile: Record<string, unknown>;
+  fallbackFamily: string;
+  targetUrl: string;
+  collectionSlug?: string;
+  collectionFamilySlugs: string[];
+  collectionFamilyUrls: string[];
+}): FontMetadata[] => {
+  const { targetProfile, fallbackFamily, targetUrl, collectionSlug, collectionFamilySlugs, collectionFamilyUrls } = params;
+  const styleMap = Array.isArray(targetProfile.styleMap) ? targetProfile.styleMap : [];
+  const fonts: FontMetadata[] = [];
+  const seenUrls = new Set<string>();
+
+  for (const row of styleMap) {
+    if (!row || typeof row !== "object") continue;
+    const fontFile = String((row as any).fontFile || "").trim();
+    const sourceUrl = toDirect205EncfileUrl(fontFile);
+    if (!sourceUrl || seenUrls.has(sourceUrl)) continue;
+
+    const postscriptName = String((row as any).postscriptName || "").trim();
+    const styleName = String((row as any).styleName || "").trim();
+    const weightValue = String((row as any).weight || "").trim() || "Regular";
+    const isItalic = Boolean((row as any).isItalic) || /italic|oblique/i.test(styleName);
+    const family = toReadablePostscriptFamily(postscriptName, fallbackFamily);
+    const fullName =
+      postscriptName.replace(/-/g, " ").trim() ||
+      `${family} ${styleName || (isItalic ? "Italic" : "Regular")}`.trim();
+
+    fonts.push({
+      url: sourceUrl,
+      format: "woff2",
+      family,
+      style: isItalic ? "Italic" : "Normal",
+      weight: weightValue,
+      downloadable: true,
+      note: "Direct 205.tf encfile source.",
+      metadata: {
+        pageUrl: targetUrl,
+        targetUrl,
+        foundry: "205TF",
+        family,
+        styleName,
+        fullName,
+        postscriptName,
+        forceMetadataRepair: true,
+        collection: collectionSlug,
+        collectionFamilies: collectionFamilySlugs,
+        collectionFamilyUrls,
+        headers: {
+          Origin: "https://www.205.tf",
+          Referer: targetUrl
+        }
+      }
+    });
+    seenUrls.add(sourceUrl);
+  }
+
+  return fonts;
+};
+
 const resolveTargetUrl = async (rawUrl: string): Promise<Resolved205Target> => {
   const normalized = normalizeSourceUrl(rawUrl);
   const origin = normalized.origin;
@@ -230,8 +361,9 @@ const resolveTargetUrl = async (rawUrl: string): Promise<Resolved205Target> => {
   if (segments[0] === "collection" && segments[1]) {
     const slug = segments[1].toLowerCase();
     const mapped = `${origin}/collection/${slug}`;
+    let familySlugs: string[] = [];
+
     if (await isReachable(mapped)) {
-      let familySlugs: string[] = [];
       try {
         const response = await fetch(mapped, { headers: { "User-Agent": BROWSER_UA } });
         if (response.ok) {
@@ -241,12 +373,23 @@ const resolveTargetUrl = async (rawUrl: string): Promise<Resolved205Target> => {
       } catch {
         // fallback to heuristics below
       }
+    }
 
-      if (familySlugs.length === 0) {
-        const heuristicSlugs = [`${slug}-sans`, `${slug}-petit`, `${slug}-moyen`, `${slug}-grand`, `${slug}-text`, `${slug}-mono`, `${slug}-var`, slug];
-        familySlugs = heuristicSlugs.filter((familySlug) => catalogSlugs.has(familySlug));
-      }
+    if (familySlugs.length === 0) {
+      const heuristicSlugs = [
+        `${slug}-sans`,
+        `${slug}-petit`,
+        `${slug}-moyen`,
+        `${slug}-grand`,
+        `${slug}-text`,
+        `${slug}-mono`,
+        `${slug}-var`,
+        slug
+      ];
+      familySlugs = heuristicSlugs.filter((familySlug) => catalogSlugs.has(familySlug));
+    }
 
+    if (await isReachable(mapped)) {
       return {
         targetUrl: mapped,
         familyName: `${toReadableFamily(slug)} Collection`,
@@ -254,6 +397,18 @@ const resolveTargetUrl = async (rawUrl: string): Promise<Resolved205Target> => {
         collectionFamilySlugs: familySlugs
       };
     }
+
+    // Some collection URLs return 404; fall back to typefaces but preserve target family slugs
+    // so profile/style-map filtering can still lock to the intended collection.
+    if (familySlugs.length > 0) {
+      return {
+        targetUrl: `${origin}/typefaces`,
+        familyName: `${toReadableFamily(slug)} Collection`,
+        collectionSlug: slug,
+        collectionFamilySlugs: familySlugs
+      };
+    }
+
     return { targetUrl: `${origin}/typefaces`, familyName: "205TF Catalog" };
   }
 
@@ -351,7 +506,7 @@ const build205ProvocationScript = (familyName: string): string => `
 
     window.__specimen_extraction_complete = true;
 
-    window.__saka_extraction_complete = true;
+    window.__specimen_extraction_complete = true;
   })();
 `;
 
@@ -375,7 +530,19 @@ export const TF205Scraper: Scraper = {
       ? resolved.collectionFamilySlugs
       : [];
     const collectionFamilyUrls = collectionFamilySlugs.map((slug) => `${origin}/${slug}`);
-    const targetProfile = await fetch205TargetProfile(targetUrl, familyName, resolved.collectionSlug);
+    const collectionProfiles: Array<Record<string, unknown>> = [];
+    for (const slug of collectionFamilySlugs) {
+      try {
+        const familyProfile = await fetch205TargetProfile(`${origin}/${slug}`, toReadableFamily(slug), slug);
+        if (familyProfile) collectionProfiles.push(familyProfile);
+      } catch {
+        // keep best-effort flow for unstable collection pages
+      }
+    }
+
+    const targetProfile =
+      merge205TargetProfiles(collectionProfiles, familyName, resolved.collectionSlug) ||
+      (await fetch205TargetProfile(targetUrl, familyName, resolved.collectionSlug));
     const targetProfileStyles = Array.isArray(targetProfile?.styleMap) ? targetProfile.styleMap.length : 0;
     const expectedCount =
       targetProfileStyles > 0
@@ -385,30 +552,45 @@ export const TF205Scraper: Scraper = {
         ? collectionFamilySlugs.length * 16
         : undefined;
     const provocationToken = resolved.collectionSlug || familyName;
+    const directFonts =
+      targetProfile && typeof targetProfile === "object"
+        ? buildDirect205FontsFromProfile({
+            targetProfile,
+            fallbackFamily: familyName,
+            targetUrl,
+            collectionSlug: resolved.collectionSlug,
+            collectionFamilySlugs,
+            collectionFamilyUrls
+          })
+        : [];
+    const fonts: FontMetadata[] =
+      directFonts.length > 0
+        ? directFonts
+        : [
+            {
+              url: "browser-intercept",
+              family: familyName,
+              format: "woff2",
+              weight: "Regular",
+              style: "Normal",
+              downloadable: true,
+              note: "Extraction via browser interception.",
+              metadata: {
+                pageUrl: targetUrl,
+                foundry: "205TF",
+                family: familyName,
+                collection: resolved.collectionSlug,
+                collectionFamilies: collectionFamilySlugs,
+                collectionFamilyUrls,
+                ...(targetProfile ? { targetProfile } : {})
+              }
+            }
+          ];
 
     return {
       scraperName: this.name,
       foundryName: "205TF",
-      fonts: [
-        {
-      url: "browser-intercept",
-      family: familyName,
-      format: "woff2",
-      weight: "Regular",
-      style: "Normal",
-      downloadable: true,
-      note: "Extraction via browser interception.",
-      metadata: {
-        pageUrl: targetUrl,
-        foundry: "205TF",
-        family: familyName,
-        collection: resolved.collectionSlug,
-        collectionFamilies: collectionFamilySlugs,
-        collectionFamilyUrls,
-        ...(targetProfile ? { targetProfile } : {})
-      }
-    }
-      ],
+      fonts,
       originalUrl: url,
       targetUrl,
       injectScript: build205ProvocationScript(provocationToken),

@@ -1,4 +1,4 @@
-﻿import { Scraper, ScrapeResult } from "./types";
+import { Scraper, ScrapeResult } from "./scraper-protocol";
 
 const DISPLAAY_HOST = "displaay.net";
 const DISPLAAY_API = "https://displaay.net/api/global-data";

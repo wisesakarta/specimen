@@ -13,7 +13,12 @@ const ROOT_FILE_PATTERNS = [
   /^server\.log$/i,
   /^tsc_errors\.log$/i,
   /^validation-log\.json$/i,
-  /^final_fix\.cjs$/i
+  /^final_fix\.cjs$/i,
+  /^temp-.+/i,
+  /^verify_.+\.txt$/i,
+  /^.+_audit_results\.txt$/i,
+  /^tsconfig(?:\..+)?\.tsbuildinfo$/i,
+  /^test\.woff2$/i
 ];
 
 const ROOT_DIR_PATTERNS = [
@@ -24,7 +29,7 @@ const ROOT_DIR_PATTERNS = [
   /^\.temp-.+/i
 ];
 
-const RECURSIVE_DIR_PATTERNS = [/^__pycache__$/i];
+const RECURSIVE_DIR_PATTERNS = [/^__pycache__$/i, /^cache$/i];
 const RECURSION_SKIP = new Set([".git", ".next", "node_modules", "downloads", "backup"]);
 
 const matchesAny = (value, patterns) => patterns.some((re) => re.test(value));
@@ -122,3 +127,4 @@ run().catch((error) => {
   console.error("[cleanup] fatal:", message);
   process.exitCode = 1;
 });
+

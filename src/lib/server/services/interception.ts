@@ -29,10 +29,16 @@ export class InterceptionService extends EventEmitter {
 
   private isMetadata(url: string, resourceType?: string, headers?: Record<string, unknown>): boolean {
     const lowerType = (resourceType || "").toLowerCase();
+    const contentType = String(headers?.["content-type"] || "").toLowerCase();
     const isNextData = url.includes("_next/data") || url.includes("typeface.json") || url.includes("_next/static/chunks");
     const isNextRSC = lowerType === "document" || lowerType === "fetch" || lowerType === "xhr" || url.includes("collection") || url.includes("pinokio");
     const hasRSCHeader = !!(headers && String(headers["content-type"] || "").includes("x-component"));
-    return !!(isNextData || isNextRSC || hasRSCHeader);
+    const isFontdueCss =
+      url.toLowerCase().includes("fonts.fontdue.com/") &&
+      url.toLowerCase().includes("/css/") &&
+      url.toLowerCase().includes(".css");
+    const isCssPayload = lowerType === "stylesheet" || contentType.includes("text/css");
+    return !!(isNextData || isNextRSC || hasRSCHeader || (isFontdueCss && isCssPayload));
   }
 
   private emitCapturedAsset(

@@ -1,4 +1,4 @@
-import { Scraper, ScrapeResult } from "./types";
+import { Scraper, ScrapeResult } from "./scraper-protocol";
 
 const MONOLISA_HOST = "monolisa.dev";
 const CSS_INITIAL_ENDPOINT = "https://www.monolisa.dev/api/fonts/initial/latest";

@@ -106,7 +106,7 @@ def _name_table_sanity(font) -> Dict:
     return result
 
 
-def _is_italic(font) -> Optional[bool]:
+def _italic_flag_state(font) -> Optional[bool]:
     try:
         os2 = font["OS/2"] if "OS/2" in font else None
         head = font["head"] if "head" in font else None
@@ -268,12 +268,17 @@ def analyze_font(filepath: Path, target_tokens: Optional[List[str]] = None) -> D
             )
             result["declared_italic"] = declared_italic
 
-        result["is_italic"] = _is_italic(font)
+        result["is_italic"] = _italic_flag_state(font)
         effective_italic = None
-        if result["is_italic"] is not None:
+        declared_italic = result.get("declared_italic")
+        if declared_italic is True:
+            effective_italic = True
+        elif declared_italic is False:
+            # Trust explicit naming over italic flags when a source font ships
+            # contradictory metadata (seen on some retail/public webfonts).
+            effective_italic = bool(result["filename_is_italic"])
+        elif result["is_italic"] is not None:
             effective_italic = bool(result["is_italic"])
-        if result.get("declared_italic") is True:
-            effective_italic = True if effective_italic is None else (effective_italic or True)
         result["effective_italic"] = effective_italic
         if effective_italic is not None:
             result["italic_mismatch"] = bool(result["filename_is_italic"]) != bool(effective_italic)
@@ -397,8 +402,12 @@ def main():
 
     output_path = Path(args.output)
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    output_path.write_text(json.dumps(report, indent=2), encoding="utf-8")
+    with output_path.open("w", encoding="utf-8") as handle:
+        json.dump(report, handle, indent=2)
+        handle.write("\n")
 
 
 if __name__ == "__main__":
     main()
+
+

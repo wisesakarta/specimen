@@ -1,6 +1,6 @@
 import path from "node:path";
 
-import type { FontMetadata, ScrapeResult, Scraper } from "./types";
+import type { FontMetadata, ScrapeResult, Scraper } from "./scraper-protocol";
 
 const JULYTYPE_HOST = "www.julytype.com";
 const JULYTYPE_ORIGIN = "https://www.julytype.com";
@@ -456,7 +456,7 @@ const buildFallbackInjectScript = (): string => `
     }
     await sleep(1400);
     window.__specimen_julytype_probe_done = true;
-    window.__saka_julytype_probe_done = true;
+    window.__specimen_julytype_probe_done = true;
   })();
 `;
 

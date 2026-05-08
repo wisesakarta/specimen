@@ -1,4 +1,4 @@
-import { Scraper, ScrapeResult } from "./types";
+import { Scraper, ScrapeResult } from "./scraper-protocol";
 
 const LINETO_UA =
   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36";
@@ -442,7 +442,7 @@ export const LinetoScraper: Scraper = {
         (async () => {
           const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
           const scriptTabHint = /^(latin|cyrillic|greek|vietnamese|paneuro|arabic|hebrew|devanagari)$/i;
-          console.log("[Lineto-Saka] Focused script-tab sweep activated.");
+          console.log("[Lineto] Focused script-tab sweep activated.");
 
           // Populate editable preview fields without touching navigation actions.
           const testString = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789!@#$%^&*()";

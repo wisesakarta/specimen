@@ -1,156 +1,487 @@
 @import "tailwindcss";
 @config "../../tailwind.config.ts";
+@source "./**/*.{js,ts,jsx,tsx,mdx}";
+@source "../components/**/*.{js,ts,jsx,tsx,mdx}";
+@source "../pages/**/*.{js,ts,jsx,tsx,mdx}";
+@source not "../../.mcp-chrome-profile/**/*";
 @import "./fonts.css";
 
+/* ─────────────────────────────────────────────
+   WIN95 DESIGN TOKENS  (React95 canonical grammar)
+   Source: @react95/core tokens/win95.cjs
+   ───────────────────────────────────────────── */
 :root {
-  /* Brutalist Sizing Logic - User Configurable */
-  --brutalist-line: 5px;
-  --brutalist-marker: 10px;
-  --brutalist-offset-x: 10vw;
-  --brutalist-offset-y: 10vh;
+  /* Desktop */
+  --win-desktop:            #008080;
+
+  /* Panel / Button Face — Windows 95 Classic (#c0c0c0) */
+  --win-face:               #c0c0c0;
+  --win-face-light:         #dfdfdf;
+  --win-highlight:          #ffffff;
+  --win-shadow:             #808080;
+  --win-dk-shadow:          #000000;
   
-  /* Input Grid Dimensions */
-  --brutalist-input-width: 400px;
-  --brutalist-input-height: 100px;
-  --brutalist-footer-width: 400px; /* Controls horizontal spreading of brand footer text */
-  /* Color Pallete */
-  --canvas: #f5f5f5;
-  --paper: #f5f5f5;
-  --panel: #f5f5f5;
-  --ink: #0a0a0a;
-  --ink-soft: #1a1a1a;
-  --muted: #888888;
-  --line: #0a0a0a;
-  --line-soft: rgba(10, 10, 10, 0.2);
-  --line-strong: #0a0a0a;
-  --accent: #0a0a0a;
+  /* Active Title Bar — Solid Navy (#000080) */
+  --win-title-active:       #000080;
+  --win-title-text:         #ffffff;
+  
+  /* Inactive Title Bar — Solid Grey (#808080) */
+  --win-title-inactive:     #808080;
+  --win-title-text-inactive:#c0c0c0;
+
+  /* Selection colors */
+  --win-select-bg:          #000080;
+  --win-select-text:        #ffffff;
+  
+  /* Shell font — defined in fonts.css (loaded from woff2) */
+  --win-font-size:          11px;
+  --win-text:               #000000;
+  --win-text-muted:         #444444;
+
+  /* Window canvas — white background for inputs, listboxes, editors */
+  --win-window:             #ffffff;
+
+  /* Progress bar fill */
+  --win-progress-fill:      var(--win-title-active);
+
+  /* Bevel Effect Standard — 4-color sharp bevel */
+  --bevel-raised:
+    inset 1px 1px 0 var(--win-highlight),
+    inset -1px -1px 0 var(--win-dk-shadow),
+    inset 2px 2px 0 var(--win-face-light),
+    inset -2px -2px 0 var(--win-shadow);
+
+  --bevel-pressed:
+    inset 1px 1px 0 var(--win-dk-shadow),
+    inset -1px -1px 0 var(--win-highlight),
+    inset 2px 2px 0 var(--win-shadow),
+    inset -2px -2px 0 var(--win-face-light);
+
+  --bevel-sunken:
+    inset 1px 1px 0 var(--win-shadow),
+    inset -1px -1px 0 var(--win-highlight),
+    inset 2px 2px 0 var(--win-dk-shadow),
+    inset -2px -2px 0 var(--win-face-light);
+
+  --bevel-window-border:
+    inset 0 0 0 1px var(--win-dk-shadow),
+    0 0 0 1px var(--win-highlight);
+
+  /* Sizing */
+  --win-titlebar-height:    22px;
+  --win-titlebar-font-size: 11px;
+  --win-control-size:       16px;
+
+  /* Legacy mapping for components still using old tokens */
+  --canvas:         var(--win-desktop);
+  --paper:          var(--win-face);
+  --panel:          var(--win-face);
+  --ink:            #000000;
+  --ink-soft:       #444444;
+  --muted:          var(--win-shadow);
+  --line:           var(--win-shadow);
+  --line-strong:    var(--win-dk-shadow);
+  --accent:         var(--win-title-active);
+
+  --brutalist-line:     1px;
+  --brutalist-marker:   8px;
+  --brutalist-offset-x: 0px;
+  --brutalist-offset-y: 0px;
+  --brutalist-input-width:  380px;
+  --brutalist-input-height: auto;
+  --brutalist-footer-width: 400px;
 
   --grid-a: transparent;
   --grid-b: transparent;
+
+  /* ─────────────────────────────────────────────
+     WIN95 CURSOR TOKENS (Extracted from @react95/core)
+     ───────────────────────────────────────────── */
+  --win-cursor-auto:        url(data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAAh0lEQVRYhe2WSwrAIAxEJ6H3v3K6MaX110WbzCYPRNTFPKOIAGAgoq2nSSgAmBlNwitAk9D7gCGh/US2xCCQLTEVyJRYCmRJbAUyJI7VgogMLgCGya88KjAJla79ziXQwsUlUi+hh0eHLQW68NQqKEg7d3bh1ioQekSv7wAbA/nHVBRFURThnD/uMROGdeAFAAAAAElFTkSuQmCC), auto;
+  --win-cursor-pointer:     url(data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAAmklEQVRYhe2W0Q6AIAhFwfX/v0wPybLSaXqJHjhbWw8FR6CUqI7kyxyuJHx5pRU5cjNz6xkYyTJ4CKAETAdy62Y/B7KUgA3mqxaIiArBqjI9A4XIsoDQ5IoQEkkD1YJp/+/3SC4tGE2ClElExPmX64JWwE3i8RVY9XpEwKUKS3sBYru+C3xeBffdsLVc6Q0j6rT03wosvh8EQRAMswM0QjoRL/LEagAAAABJRU5ErkJggg==), pointer;
+  --win-cursor-text:        url(data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAAYUlEQVRYhe2VQQqAMAwEXfH/X14vIiFNQcTUy8wtgWaHHBptCduOtSRVvfzuLUfVzPNjnVx6BGJIsYB1XMnuNNi7BiOAAAIIIPCU4RjN/v3YX32OJekO/+Mcfx4KAAAAkRPQ3S0e3gpbvAAAAABJRU5ErkJggg==), text;
+  --win-cursor-help:        url(data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAABmJLR0QAgQAGAAaYK/vaAAAACXBIWXMAAAsTAAALEwEAmpwYAAAAB3RJTUUH4AMcFDgJ8pMsJgAAANRJREFUWMPtlNsOhCAMRGf4/3+efdiFAIq02BiTpQkPau2c3iAAASD8psl3U8xkDOYVN8dMACDJA6FI0FQ8bRCKblVqPK8hVsSn/6aDp68dkMR8VsjSIKgJIouSbJ5vA3ggSGbfAhICYIE4EXfPCb86smTJ/l0NSlIrl9IQYFBOnlVpVfzQghNRdidUvAH4ibOa6MueRogXgCyOOKN3C9h24liFfk5WVm4EEJl52D0wrcJsdUMuotnd8MSw5DRZZxwl/gq7m4qi1vB1W7ABtm3b9j/2AXNCchMwrFvXAAAAAElFTkSuQmCC), help;
+  --win-cursor-wait:        url(data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAAsElEQVRYhe1Wuw7DMBDiqv7/L9OhcuRcLNXgNh56LM4QAeEeMVAo/DtCeJe/4H+qjORnHxHz37U9AcUAAFBIYIr7IRr4OmwDrc75vM0ASUTE6XQg90ATPwiSeJfEFLeT28WEKw54JYhebNADXjMYIN5jyfbskGwfQzeuYTM6nE4CJ/Em3JmRSrE8hhdCMQk5gSyeN6C6kJaasN+ELpb+BXkd32ZgJO6a2H4hqStZofACqCxSMK3nScIAAAAASUVORK5CYII=), wait;
+  --win-cursor-progress:    url(data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAA0UlEQVRYhe2WUQ+DMAiE7xb//19mD6YbdiAwu/nCJSZG7fGFAhUABDeKCoDJNVnglN8GACICklKAgIjNQaYt9u93L9GLI4elGTgAVCCCDKTT8DCcgT8W5gfANxDVfQ8BMhAjKElMNbQGIIDgSfASxSlAFmJ+VtHmvTDSOc8JUYDeN6EOGTCCcrrc4Oq+1EEvgNG/AyIqQqvwvNkQAlSHx9AowhVtqB1SWdDBr0B4q87Oh+VngScPwqr+t2FxHrhtGOnKvlckuPmPqdVqtVqtn+sJVtRlLNr452EAAAAASUVORK5CYII=), progress;
+  --win-cursor-move:        url(data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAA2ElEQVRYhdWU4Q7DIAiED7P3f2X2Rw0Fqm4rkF1iotT0vh5VAOA+StQAgJlRBdHGpAqiyUUFRNOFbAgDkA3hAmRC3AJkQSwBMiC2ANEQr9VDIjIsAEzxF5kEHFNS41FdABzzcE2Abk4SJO0USHMExLwFcEwpK4XmmB+JO1m0eAgihbF+AuLoItJEoz1ElJLE/HqRxGWEQ0gD2RIxN/ueNveMtrUTLU+A7Ld+b++/qY29dHit3m6S5t/oFKI8ga2i/4FPIOY89RQ4IPn3wAoi1VxDlJgriP/XG6yaCnPXsXLdAAAAAElFTkSuQmCC), move;
+  --win-cursor-ns-resize:   url(data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAAcElEQVRYhe2VwQrAIAxDm7H//+XsVBCZg2K1E/LAg1JNDqk1E0KcDElWi7PEhIv72mqiF581gag4ML5C0vBV8MIdKXYRB4CV5TArhFeSHxk410CoC0aBa8+Xt2H/frvf0pLZP2GKidKB9IeRLIQQUzyny2q/gqNGmAAAAABJRU5ErkJggg==), ns-resize;
+  --win-cursor-ew-resize:   url(data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAAbklEQVRYhe2TQQqAMAwEM/7/z/USQQptNyqIuHPqYWkmaRNhjDHmS7TkbubMVikOSFkgVAlJoFK8KrG8tS+uNNbnmdhPBa50PrhnKPH6BCTyLVsel1ugZiPETwhQ2KxDROpcXsOKxCNjN8YY8xt2HSBa6Ar93vIAAAAASUVORK5CYII=), ew-resize;
+  --win-cursor-nwse-resize: url(data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAAfUlEQVRYhe2UQQrAIAwEk9L/f3l7UZBiJCZqD925KTE7AVWEEEI+Rj1FAGA2UHX1sLi9hb2cgZebK3oQQHr6sMCq8JBACR/ei20CdfLVEp5gvMPKurt/VKyVsKROSkwLhJ9hpb0TEdICAJB5kSmBbLjIxFc8kMi2IISQn/MAfiVl2DaxoY4AAAAASUVORK5CYII=), nwse-resize;
+  --win-cursor-nesw-resize: url(data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAAfUlEQVRYhe2UOQ6AMAwEs4j/f3lpQDJHDmKHFOx0pPCMcpCSEEJMBt4BJJkdDlTnr96AXXRbK3SdWALkaJUNCfBGhASQJIDmbQ8NsHLvcVRF1xu/fz+ul15Hd4CV5eTDOIRGGiLvugP2zKcEmIg5OxAZ8epX/NV9E0KIf7EB3G1l2PEHnRoAAAAASUVORK5CYII=), nesw-resize;
 }
+
 
 @media (max-width: 768px) {
   :root {
-    /* Mobile Adjustments */
-    --brutalist-line: 3px;
-    --brutalist-marker: 8px;
-    --brutalist-offset-x: 1.5rem; /* Fixed padding for safety */
-    --brutalist-offset-y: 5vh;
-    
-    /* Fluid Input */
-    --brutalist-input-width: 70vw;
-    --brutalist-input-height: 80px;
-    --brutalist-footer-width: 70vw;
+    --brutalist-input-width: calc(100vw - 48px);
   }
 }
 
-[data-theme="dark"] {
-  /* Bécane Paris Palette (Dark) */
-  --canvas: #0a0a0a;
-  --paper: #0a0a0a;
-  --panel: #0a0a0a;
-  --ink: #f5f5f5;
-  --ink-soft: #dedede;
-  --muted: #777777;
-  --line: #f5f5f5;
-  --line-soft: rgba(245, 245, 245, 0.2);
-  --line-strong: #f5f5f5;
-  --accent: #f5f5f5;
-
-  --grid-a: transparent;
-  --grid-b: transparent;
-}
-
+/* ─────────────────────────────────────────────
+   BASE STYLES
+   ───────────────────────────────────────────── */
 @layer base {
   html {
     scroll-behavior: smooth;
   }
 
-  html,
-  body {
+  html, body {
     min-height: 100%;
   }
 
   body {
     margin: 0;
-    background: var(--canvas);
-    color: var(--ink);
-    font-family: var(--font-sans);
-    -webkit-font-smoothing: antialiased;
-    text-rendering: geometricPrecision;
+    background: var(--win-desktop);
+    color: var(--win-text);
+    font-family: var(--font-shell);
+    font-size: var(--win-font-size);
+    -webkit-font-smoothing: none;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeSpeed;
     overflow-x: hidden;
     overscroll-behavior: none;
-  }
-
-  body::before {
-    content: "";
-    position: fixed;
-    inset: 0;
-    pointer-events: none;
-    opacity: 1;
-    z-index: -1;
+    cursor: var(--win-cursor-auto);
   }
 
   ::selection {
-    background: var(--ink);
-    color: var(--paper);
+    background: var(--win-select-bg);
+    color: var(--win-select-text);
   }
 
-  button,
-  input,
-  textarea {
+  button, input, textarea, select {
     font: inherit;
   }
+
+  /* Win95 canonical cursor rules — Adaptive System */
+  html, body {
+    cursor: var(--win-cursor-auto);
+  }
+
+  /* Text-heavy elements use the I-beam (text) cursor ONLY when relevant */
+  .win-text-content,
+  .win-selectable-text {
+    cursor: var(--win-cursor-text);
+  }
+
+  /* Structural elements and labels default to Arrow (auto) */
+  button, 
+  [role="button"],
+  .win-btn,
+  .win-titlebar,
+  .win-desktop-icon,
+  .win-taskbar-pill,
+  .win-menu-item,
+  label,
+  span,
+  p, h1, h2, h3, h4, h5, h6 {
+    cursor: var(--win-cursor-auto);
+  }
+
+  /* Links use the Hand (pointer) */
+  a, .win-link {
+    cursor: var(--win-cursor-pointer) !important;
+  }
+
+  /* Inputs use the I-beam (text) */
+  input, 
+  textarea,
+  .win-input,
+  [contenteditable="true"] {
+    cursor: var(--win-cursor-text) !important;
+  }
+
+  /* Specialized states */
+  .cursor-wait { cursor: var(--win-cursor-wait) !important; }
+  .cursor-help { cursor: var(--win-cursor-help) !important; }
+  .cursor-move { cursor: var(--win-cursor-move) !important; }
 }
 
+
+/* ─────────────────────────────────────────────
+   WIN2K UTILITY CLASSES
+   ───────────────────────────────────────────── */
 @layer utilities {
-  .mono {
-    font-family: var(--font-mono);
+  /* 3D Bevel effects */
+  .win-raised  { box-shadow: var(--bevel-raised); }
+  .win-pressed { box-shadow: var(--bevel-pressed); }
+  .win-sunken  { box-shadow: var(--bevel-sunken); }
+
+  /* Window outer border */
+  .win-window-border {
+    outline: 2px solid var(--win-dk-shadow);
+    outline-offset: -1px;
+    box-shadow: 0 0 0 1px var(--win-highlight);
   }
 
-  .label {
-    font-family: var(--font-mono);
-    font-size: 10px;
-    text-transform: uppercase;
-    letter-spacing: 0.32em;
+  /* Title bar — solid color (Win95 canonical: no gradient) */
+  .win-titlebar-active {
+    background: var(--win-title-active);
+    color: var(--win-title-text);
   }
 
-  .label-tight {
-    font-family: var(--font-mono);
+  .win-titlebar-inactive {
+    background: var(--win-title-inactive);
+    color: var(--win-title-text-inactive);
+  }
+
+  /* Authentic 2x2 ordered dither pattern */
+  .win-dither {
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='2' height='2'%3E%3Crect width='1' height='1' fill='rgba(0,0,0,0.15)'/%3E%3Crect x='1' y='1' width='1' height='1' fill='rgba(0,0,0,0.15)'/%3E%3C/svg%3E");
+  }
+
+  /* Desktop background with subtle noise and atmospheric depth */
+  .win-desktop {
+    background-color: var(--win-desktop);
+    background-image: 
+      url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='2' height='2'%3E%3Crect width='1' height='1' fill='rgba(0,0,0,0.06)'/%3E%3Crect x='1' y='1' width='1' height='1' fill='rgba(0,0,0,0.06)'/%3E%3C/svg%3E"),
+      radial-gradient(circle at 50% 50%, rgba(255,255,255,0.03) 0%, transparent 80%);
+    background-attachment: fixed;
+  }
+
+  /* Authentic Win95 Segmented Progress Bar — Using repeating-linear-gradient for "tiled" blocks */
+  .win-progress-fill {
+    height: 100%;
+    background-color: var(--win-title-active);
+    background-image: repeating-linear-gradient(
+      90deg,
+      var(--win-title-active),
+      var(--win-title-active) 8px,
+      transparent 8px,
+      transparent 10px
+    );
+    background-size: 10px 100%;
+  }
+
+  /* Indeterminate state — pulsing the block sequence */
+  .win-progress-fill-indeterminate {
+    width: 40%;
+    animation: win-progress-pulse 1.8s linear infinite;
+  }
+
+  @keyframes win-progress-pulse {
+    0%   { transform: translateX(-100%); }
+    100% { transform: translateX(250%); }
+  }
+
+  /* Staggered list item reveal — 15ms per item, opacity only (compositor-safe) */
+  @keyframes win-item-in {
+    from { opacity: 0; }
+    to   { opacity: 1; }
+  }
+
+  .win-stagger > * {
+    opacity: 0;
+    animation: win-item-in 50ms ease-out forwards;
+  }
+  .win-stagger > *:nth-child(1)  { animation-delay:   0ms; }
+  .win-stagger > *:nth-child(2)  { animation-delay:  15ms; }
+  .win-stagger > *:nth-child(3)  { animation-delay:  30ms; }
+  .win-stagger > *:nth-child(4)  { animation-delay:  45ms; }
+  .win-stagger > *:nth-child(5)  { animation-delay:  60ms; }
+  .win-stagger > *:nth-child(6)  { animation-delay:  75ms; }
+  .win-stagger > *:nth-child(7)  { animation-delay:  90ms; }
+  .win-stagger > *:nth-child(8)  { animation-delay: 105ms; }
+  .win-stagger > *:nth-child(9)  { animation-delay: 120ms; }
+  .win-stagger > *:nth-child(10) { animation-delay: 135ms; }
+  .win-stagger > *:nth-child(11) { animation-delay: 150ms; }
+  .win-stagger > *:nth-child(12) { animation-delay: 165ms; }
+  .win-stagger > *:nth-child(n+13) { animation-delay: 180ms; }
+
+  /* Scrollbar — Authentic Win95 Architecture */
+  ::-webkit-scrollbar { 
+    width: 16px; 
+    height: 16px; 
+  }
+  
+  ::-webkit-scrollbar-track { 
+    background-color: var(--win-face);
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='2' height='2'%3E%3Crect width='1' height='1' fill='white' /%3E%3Crect x='1' y='1' width='1' height='1' fill='white' /%3E%3Crect x='1' y='0' width='1' height='1' fill='%23c0c0c0' /%3E%3Crect x='0' y='1' width='1' height='1' fill='%23c0c0c0' /%3E%3C/svg%3E");
+  }
+  
+  ::-webkit-scrollbar-thumb { 
+    background: var(--win-face); 
+    box-shadow: var(--bevel-raised); 
+  }
+
+  ::-webkit-scrollbar-button:single-button {
+    background-color: var(--win-face);
+    background-repeat: no-repeat;
+    background-position: center;
+    box-shadow: var(--bevel-raised);
+    display: block;
+    height: 16px;
+    width: 16px;
+  }
+
+  ::-webkit-scrollbar-button:single-button:active {
+    box-shadow: var(--bevel-pressed);
+  }
+
+  /* Vertical Arrows */
+  ::-webkit-scrollbar-button:vertical:single-button:decrement {
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16'%3E%3Cpath d='M8 6l-3 3h6z' fill='black'/%3E%3C/svg%3E");
+  }
+  ::-webkit-scrollbar-button:vertical:single-button:increment {
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16'%3E%3Cpath d='M8 10l-3-3h6z' fill='black'/%3E%3C/svg%3E");
+  }
+
+  /* Horizontal Arrows */
+  ::-webkit-scrollbar-button:horizontal:single-button:decrement {
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16'%3E%3Cpath d='M6 8l3-3v6z' fill='black'/%3E%3C/svg%3E");
+  }
+  ::-webkit-scrollbar-button:horizontal:single-button:increment {
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16'%3E%3Cpath d='M10 8l-3-3v6z' fill='black'/%3E%3C/svg%3E");
+  }
+
+  ::-webkit-scrollbar-corner { background: var(--win-face); }
+
+  /* Font utilities */
+  .mono   { font-family: var(--font-mono); }
+  .label  { font-family: var(--font-mono); font-size: 10px; text-transform: uppercase; letter-spacing: 0.12em; }
+  .tabular { font-variant-numeric: tabular-nums; }
+
+  /* Cursor utilities */
+  .cursor-auto      { cursor: var(--win-cursor-auto) !important; }
+  .cursor-default   { cursor: var(--win-cursor-auto) !important; }
+  .cursor-pointer   { cursor: var(--win-cursor-pointer) !important; }
+  .cursor-text      { cursor: var(--win-cursor-text) !important; }
+  .cursor-wait      { cursor: var(--win-cursor-wait) !important; }
+  .cursor-help      { cursor: var(--win-cursor-help) !important; }
+  .cursor-move      { cursor: var(--win-cursor-move) !important; }
+  .cursor-ns-resize { cursor: var(--win-cursor-ns-resize) !important; }
+  .cursor-ew-resize { cursor: var(--win-cursor-ew-resize) !important; }
+  .cursor-nwse-resize { cursor: var(--win-cursor-nwse-resize) !important; }
+  .cursor-nesw-resize { cursor: var(--win-cursor-nesw-resize) !important; }
+}
+
+/* ─────────────────────────────────────────────
+   WIN2K BUTTON ANIMATION
+   ───────────────────────────────────────────── */
+@layer components {
+  .win-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 75px;
+    height: 23px;
+    padding: 0 12px;
+    background: var(--win-face);
+    color: var(--win-text);
+    font-family: var(--font-shell);
+    font-size: var(--win-font-size);
+    font-weight: 400;
+    border: 0;
+    box-shadow: var(--bevel-raised);
+    outline: none;
+    cursor: default;
+    user-select: none;
+    position: relative;
+    transition: none;
+  }
+
+  .win-btn:active:not(:disabled) {
+    box-shadow: var(--bevel-pressed);
+    transform: translateY(1px);
+    padding-top: 1px;
+    padding-left: 13px;
+  }
+
+  .win-btn:focus-visible {
+    outline: 1px dotted var(--win-text);
+    outline-offset: -4px;
+  }
+
+  .win-btn:disabled {
+    color: var(--win-shadow);
+    text-shadow: 1px 1px 0 var(--win-highlight);
+    cursor: default;
+    opacity: 1;
+  }
+
+  /* Primary / default button (has focus ring border) */
+  .win-btn-primary {
+    box-shadow:
+      0 0 0 2px var(--win-text),
+      var(--bevel-raised);
+  }
+
+  .win-btn-primary:active:not(:disabled) {
+    box-shadow:
+      0 0 0 2px var(--win-text),
+      var(--bevel-pressed);
+    padding-top: 1px;
+    padding-left: 13px;
+  }
+
+  /* Title bar control button (×, —, □) */
+  .win-ctrl-btn {
+    width: var(--win-control-size);
+    height: var(--win-control-size);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--win-face);
+    box-shadow: var(--bevel-raised);
+    font-family: var(--font-shell);
     font-size: 9px;
-    text-transform: uppercase;
-    letter-spacing: 0.22em;
+    font-weight: bold;
+    color: var(--win-text);
+    border: 0;
+    padding: 0;
+    cursor: default;
+    flex-shrink: 0;
+    line-height: 1;
+    user-select: none;
   }
 
-  .tabular {
-    font-variant-numeric: tabular-nums;
+  .win-ctrl-btn:active {
+    box-shadow: var(--bevel-pressed);
+    padding-top: 1px;
   }
 
-  /* Custom Brutalist Scrollbar */
-  ::-webkit-scrollbar {
-    width: 6px;
-    height: 6px;
+  /* Sunken input / listbox */
+  .win-input {
+    background: var(--win-window);
+    border: 0;
+    box-shadow: var(--bevel-sunken);
+    padding: 2px 4px;
+    font-family: var(--font-shell);
+    font-size: var(--win-font-size);
+    color: var(--win-text);
+    outline: none;
+    width: 100%;
   }
 
-  ::-webkit-scrollbar-track {
-    background: transparent;
+  .win-input:focus {
+    outline: none;
   }
 
-  ::-webkit-scrollbar-thumb {
-    background: var(--line-soft);
-    border-radius: 0;
+  /* Listbox row */
+  .win-list-row {
+    padding: 2px 6px;
+    color: var(--win-text);
+    font-family: var(--font-shell);
+    font-size: var(--win-font-size);
+    cursor: default;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
 
-  ::-webkit-scrollbar-thumb:hover {
-    background: var(--ink);
+  .win-list-row:hover,
+  .win-list-row[data-selected="true"] {
+    background: var(--win-select-bg);
+    color: var(--win-select-text);
   }
 
-  .no-scrollbar::-webkit-scrollbar {
-    display: none;
+  /* Panel / group box */
+  .win-panel {
+    background: var(--win-face);
+    box-shadow: var(--bevel-raised);
   }
 
-  .no-scrollbar {
-    -ms-overflow-style: none;
-    scrollbar-width: none;
+  .win-inset {
+    background: var(--win-face);
+    box-shadow: var(--bevel-sunken);
   }
 }

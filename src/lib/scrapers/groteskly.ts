@@ -1,4 +1,4 @@
-import { Scraper, ScrapeResult } from "./types";
+import { Scraper, ScrapeResult } from "./scraper-protocol";
 
 const GROTESKLY_HOST = "groteskly.xyz";
 const GROTESKLY_ZIP_HOST_PATTERN = /(?:grtskly|groteskly)\.xyz/i;
@@ -530,7 +530,7 @@ const buildInjectScript = (params: {
 
       window.__specimen_extraction_complete = true;
 
-      window.__saka_extraction_complete = true;
+      window.__specimen_extraction_complete = true;
     })();
   `;
 };

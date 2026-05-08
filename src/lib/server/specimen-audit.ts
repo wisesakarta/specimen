@@ -3,7 +3,7 @@ import path from "node:path";
 import { mkdir, writeFile } from "node:fs/promises";
 import { createRequire } from "node:module";
 
-import type { BrowserRequest } from "@/lib/types";
+import type { BrowserRequest } from "@/lib/downloader-protocol";
 import { joinOpaquePath } from "@/lib/server/opaque-path";
 
 const BROWSER_UA =
@@ -16,7 +16,7 @@ type PdfCandidate = {
 };
 
 const STYLE_WORDS =
-  "(?:thin|extralight|extra light|ultralight|ultra light|light|regular|book|medium|semibold|semi bold|demibold|demi bold|bold|extrabold|extra bold|black|heavy)";
+  "(?:air|thin|extralight|extra light|ultralight|ultra light|light|regular|book|retina|medium|semibold|semi bold|demibold|demi bold|bold|extrabold|extra bold|black|heavy|super)";
 const WIDTH_WORDS = "(?:condensed|narrow|normal|text|display|mono|soft|extended)";
 const FEATURE_TAG_RE =
   /\b(ss\d{2}|cv\d{2}|liga|dlig|calt|salt|onum|lnum|pnum|tnum|frac|afrc|sups|subs|smcp|c2sc|case|ordn|kern|zero)\b/gi;
@@ -165,6 +165,365 @@ const deriveRequestFamilyLabel = (request: BrowserRequest): string | undefined =
   return undefined;
 };
 
+const SPECIMEN_GENERIC_WORDS = new Set([
+  "font",
+  "fonts",
+  "type",
+  "typeface",
+  "typefaces",
+  "family",
+  "families",
+  "product",
+  "products",
+  "shop",
+  "buy",
+  "trial",
+  "download",
+  "specimen",
+  "pdf"
+]);
+
+const SPECIMEN_DESCRIPTOR_WORDS = new Set([
+  "font",
+  "fonts",
+  "guide",
+  "fontguide",
+  "specimen",
+  "brochure",
+  "catalog",
+  "catalogue",
+  "trial",
+  "manual",
+  "technical",
+  "tech",
+  "doc",
+  "techdoc",
+  "documentation",
+  "character",
+  "characters",
+  "charset",
+  "set",
+  "glyph",
+  "glyphs",
+  "preview",
+  "booklet",
+  "sheet",
+  "pdf",
+  "download",
+  "file"
+]);
+
+const asTrimmedString = (value: unknown): string | undefined => {
+  if (typeof value !== "string") return undefined;
+  const trimmed = value.trim();
+  return trimmed || undefined;
+};
+
+const safeDecodeUriComponent = (value: string): string => {
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    return value;
+  }
+};
+
+const splitNormalizedWords = (value: string): string[] => {
+  const cleaned = decodeHtmlEntities(safeDecodeUriComponent(value))
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
+    .replace(/[_/]+/g, " ");
+
+  return cleaned
+    .split(/[^A-Za-z0-9]+/)
+    .map((part) => normalizeToken(part))
+    .filter(Boolean);
+};
+
+const familyWordsToToken = (words: string[]): string => words.join("");
+
+const isMeaningfulFamilyWords = (words: string[]): boolean => {
+  if (words.length === 0) return false;
+  const filtered = words.filter((word) => !SPECIMEN_GENERIC_WORDS.has(word));
+  if (filtered.length === 0) return false;
+  return familyWordsToToken(filtered).length >= 4;
+};
+
+type PdfStemInfo = {
+  stemToken: string;
+  stemWords: string[];
+  familyWords: string[];
+  familyToken: string;
+};
+
+const derivePdfStemInfo = (rawName: string): PdfStemInfo | undefined => {
+  const decodedName = safeDecodeUriComponent(rawName);
+  const baseName = path.basename(decodedName);
+  const stem = baseName.replace(/\.pdf$/i, "");
+  if (!stem) return undefined;
+
+  const stemWords = splitNormalizedWords(stem);
+  const stemToken = normalizeToken(stem);
+  if (!stemToken) return undefined;
+
+  let splitIndex = stemWords.length;
+  for (let index = 0; index < stemWords.length; index += 1) {
+    const word = stemWords[index];
+    if (SPECIMEN_DESCRIPTOR_WORDS.has(word) || /^v(?:er(?:sion)?)?\d+$/i.test(word) || /^\d+$/.test(word)) {
+      splitIndex = index;
+      break;
+    }
+  }
+
+  const familyWords = (splitIndex > 0 ? stemWords.slice(0, splitIndex) : stemWords).slice();
+  while (familyWords.length > 0) {
+    const last = familyWords[familyWords.length - 1];
+    if (/^v(?:er(?:sion)?)?\d+$/i.test(last) || /^\d+$/.test(last)) {
+      familyWords.pop();
+      continue;
+    }
+    break;
+  }
+
+  return {
+    stemToken,
+    stemWords,
+    familyWords,
+    familyToken: familyWordsToToken(familyWords)
+  };
+};
+
+const derivePdfStemInfoFromUrl = (url: string): PdfStemInfo | undefined => {
+  try {
+    const parsed = new URL(url);
+    const baseName = path.basename(parsed.pathname || "");
+    if (!baseName) return undefined;
+    return derivePdfStemInfo(baseName);
+  } catch {
+    return undefined;
+  }
+};
+
+const extractLikelySlugWordsFromUrl = (rawUrl: string): string[][] => {
+  const sequences: string[][] = [];
+  try {
+    const parsed = new URL(rawUrl);
+    const pathSegments = parsed.pathname
+      .split("/")
+      .filter(Boolean)
+      .map((segment) => safeDecodeUriComponent(segment));
+
+    if (pathSegments.length > 0) {
+      sequences.push(splitNormalizedWords(pathSegments[pathSegments.length - 1]));
+    }
+
+    const markerTokens = new Set(["font", "fonts", "typeface", "typefaces", "family", "families", "product", "products"]);
+    for (let index = 0; index < pathSegments.length - 1; index += 1) {
+      const marker = normalizeToken(pathSegments[index]);
+      if (!markerTokens.has(marker)) continue;
+      sequences.push(splitNormalizedWords(pathSegments[index + 1]));
+    }
+  } catch {
+    // ignore malformed URL
+  }
+  return sequences;
+};
+
+const collectTargetFamilyHintValues = (request: BrowserRequest): string[] => {
+  const out: string[] = [];
+  const add = (value: unknown) => {
+    const text = asTrimmedString(value);
+    if (text) out.push(text);
+  };
+  const addMany = (value: unknown) => {
+    if (!Array.isArray(value)) return;
+    for (const item of value) add(item);
+  };
+
+  add(request.targetUrl);
+
+  if (!isRecord(request.metadata)) return out;
+
+  add(request.metadata.family);
+  add(request.metadata.familyPostscript);
+  add(request.metadata.postscriptName);
+  add(request.metadata.slug);
+  add(request.metadata.pageUrl);
+  add(request.metadata.targetUrl);
+  add(request.metadata.originalUrl);
+
+  if (isRecord(request.metadata.targetProfile)) {
+    add(request.metadata.targetProfile.family);
+    add(request.metadata.targetProfile.familyDisplay);
+    add(request.metadata.targetProfile.familyPostscript);
+    add(request.metadata.targetProfile.postscriptName);
+    add(request.metadata.targetProfile.familySlug);
+    add(request.metadata.targetProfile.slug);
+    add(request.metadata.targetProfile.pageUrl);
+    add(request.metadata.targetProfile.targetUrl);
+    addMany(request.metadata.targetProfile.expectedPostscriptNames);
+    addMany(request.metadata.targetProfile.sessionPostscriptNames);
+  }
+
+  const fonts = Array.isArray(request.metadata.fonts) ? request.metadata.fonts : [];
+  for (const font of fonts) {
+    if (!isRecord(font)) continue;
+    add(font.family);
+    if (!isRecord(font.metadata)) continue;
+
+    add(font.metadata.family);
+    add(font.metadata.familyPostscript);
+    add(font.metadata.postscriptName);
+    add(font.metadata.familySlug);
+    add(font.metadata.slug);
+    add(font.metadata.pageUrl);
+    add(font.metadata.targetUrl);
+    add(font.metadata.originalUrl);
+
+    if (isRecord(font.metadata.targetProfile)) {
+      add(font.metadata.targetProfile.family);
+      add(font.metadata.targetProfile.familyDisplay);
+      add(font.metadata.targetProfile.familyPostscript);
+      add(font.metadata.targetProfile.postscriptName);
+      add(font.metadata.targetProfile.familySlug);
+      add(font.metadata.targetProfile.slug);
+      add(font.metadata.targetProfile.pageUrl);
+      add(font.metadata.targetProfile.targetUrl);
+      addMany(font.metadata.targetProfile.expectedPostscriptNames);
+      addMany(font.metadata.targetProfile.sessionPostscriptNames);
+    }
+  }
+
+  return out;
+};
+
+type TargetFamilyMatchers = {
+  familyTokens: string[];
+  familyWordSequences: string[][];
+};
+
+const deriveTargetFamilyMatchers = (request: BrowserRequest, metadataSeedUrls: string[]): TargetFamilyMatchers => {
+  const sequenceMap = new Map<string, string[]>();
+  const tokenSet = new Set<string>();
+
+  const addSequence = (words: string[]) => {
+    const filtered = words.filter((word) => !SPECIMEN_GENERIC_WORDS.has(word));
+    if (!isMeaningfulFamilyWords(filtered)) return;
+    const sequenceKey = filtered.join("-");
+    if (!sequenceMap.has(sequenceKey)) {
+      sequenceMap.set(sequenceKey, filtered);
+    }
+    tokenSet.add(familyWordsToToken(filtered));
+  };
+
+  for (const hint of collectTargetFamilyHintValues(request)) {
+    if (/^https?:\/\//i.test(hint)) {
+      for (const words of extractLikelySlugWordsFromUrl(hint)) addSequence(words);
+      continue;
+    }
+    addSequence(splitNormalizedWords(hint));
+  }
+
+  for (const seedUrl of metadataSeedUrls) {
+    const seedInfo = derivePdfStemInfoFromUrl(seedUrl);
+    if (!seedInfo) continue;
+    if (seedInfo.familyWords.length > 0) {
+      addSequence(seedInfo.familyWords);
+      continue;
+    }
+    addSequence(seedInfo.stemWords);
+  }
+
+  const familyWordSequences = Array.from(sequenceMap.values()).sort(
+    (left, right) => familyWordsToToken(right).length - familyWordsToToken(left).length
+  );
+  const familyTokens = Array.from(tokenSet).sort((left, right) => right.length - left.length);
+
+  return {
+    familyTokens,
+    familyWordSequences
+  };
+};
+
+const matchesFamilyTokenWithAllowedSuffix = (candidateToken: string, targetToken: string): boolean => {
+  if (!candidateToken || !targetToken) return false;
+  if (candidateToken === targetToken) return true;
+  if (!candidateToken.startsWith(targetToken)) return false;
+  const suffix = candidateToken.slice(targetToken.length);
+  if (!suffix) return true;
+  return /^(?:font|guide|fontguide|specimen|brochure|catalog|catalogue|trial|manual|technical|tech|doc|techdoc|documentation|character|characters|charset|set|glyph|glyphs|preview|booklet|sheet|pdf|download|file|v(?:er(?:sion)?)?\d+|\d)/i.test(
+    suffix
+  );
+};
+
+const isPdfCandidateRelevant = (candidate: PdfCandidate, matchers: TargetFamilyMatchers): boolean => {
+  if (matchers.familyTokens.length === 0 && matchers.familyWordSequences.length === 0) return true;
+
+  const stemInfos = [
+    derivePdfStemInfoFromUrl(candidate.url),
+    candidate.suggestedFileName ? derivePdfStemInfo(candidate.suggestedFileName) : undefined
+  ].filter((value): value is PdfStemInfo => Boolean(value));
+
+  if (stemInfos.length === 0) return false;
+
+  for (const info of stemInfos) {
+    for (const targetWords of matchers.familyWordSequences) {
+      if (targetWords.length === 0 || info.familyWords.length !== targetWords.length) continue;
+      let allMatch = true;
+      for (let index = 0; index < targetWords.length; index += 1) {
+        if (info.familyWords[index] !== targetWords[index]) {
+          allMatch = false;
+          break;
+        }
+      }
+      if (allMatch) return true;
+    }
+
+    const candidateTokens = [info.familyToken, info.stemToken].filter(Boolean);
+    for (const targetToken of matchers.familyTokens) {
+      for (const candidateToken of candidateTokens) {
+        if (matchesFamilyTokenWithAllowedSuffix(candidateToken, targetToken)) {
+          return true;
+        }
+      }
+    }
+  }
+
+  return false;
+};
+
+const isTrustedOpaquePdfCandidate = (candidate: PdfCandidate, targetUrl: string): boolean => {
+  try {
+    const parsed = new URL(candidate.url);
+    const host = parsed.hostname.toLowerCase();
+    const pathname = parsed.pathname.toLowerCase();
+
+    if (/^(?:.+\.)?205\.tf$/.test(host) && /^\/data\/pdf-[a-f0-9]{16,}\.pdf$/i.test(pathname)) {
+      return true;
+    }
+
+    if (host === "store.mass-driver.com" && /^\/pdfs\/[a-z0-9-]+$/i.test(pathname)) {
+      return true;
+    }
+
+    if (
+      host.endsWith("cloudfront.net") &&
+      /^\/media\/documents\/.+\.pdf$/i.test(pathname)
+    ) {
+      return true;
+    }
+
+    const targetHost = new URL(targetUrl).hostname.toLowerCase();
+    if (host === targetHost && /\/pdfs\/[a-z0-9-]+(?:$|\/)/i.test(pathname)) {
+      return true;
+    }
+  } catch {
+    // ignore malformed URL candidates
+  }
+
+  return false;
+};
+
 const fetchTextWithTimeout = async (
   url: string,
   timeoutMs = 30000,
@@ -269,9 +628,8 @@ const parsePdfText = async (
     const parsedFromRuntime = await tryParse(runtimeModule);
     if (parsedFromRuntime) return parsedFromRuntime;
 
-    // Fallback to CJS require resolution for environments where dynamic import interop is unstable.
-    const cjsPath = NODE_REQUIRE.resolve("pdf-parse/dist/pdf-parse/cjs/index.cjs");
-    const cjsModule = NODE_REQUIRE(cjsPath) as Record<string, unknown>;
+    // Fallback to official Node export for environments where dynamic import interop is unstable.
+    const cjsModule = NODE_REQUIRE("pdf-parse/node") as Record<string, unknown>;
     const parsedFromCjs = await tryParse(cjsModule);
     if (parsedFromCjs) return parsedFromCjs;
 
@@ -282,10 +640,9 @@ const parsePdfText = async (
       parserError: "Unsupported pdf-parse module shape."
     };
   } catch (error) {
-    // Last attempt with CJS require in case runtime import failed before module resolution.
+    // Last attempt with official Node export in case runtime import failed before module resolution.
     try {
-      const cjsPath = NODE_REQUIRE.resolve("pdf-parse/dist/pdf-parse/cjs/index.cjs");
-      const cjsModule = NODE_REQUIRE(cjsPath) as Record<string, unknown>;
+      const cjsModule = NODE_REQUIRE("pdf-parse/node") as Record<string, unknown>;
       const parsedFromCjs = await tryParse(cjsModule);
       if (parsedFromCjs) return parsedFromCjs;
     } catch {
@@ -335,7 +692,7 @@ const collectCandidatePages = (request: BrowserRequest): string[] => {
     if (!trimmed) return;
     try {
       const parsed = new URL(trimmed);
-      if (parsed.protocol === "http:" || parsed.protocol === "https:") {
+      if ((parsed.protocol === "http:" || parsed.protocol === "https:") && !isLikelySpecimenPdfUrl(parsed.href)) {
         urls.add(parsed.href);
       }
     } catch {
@@ -504,6 +861,17 @@ const extractStyleCandidates = (text: string): string[] => {
     out.add(normalizeStyleLabel(split));
   }
 
+  // Some specimens list the regular italic as just "Italic" (without "Regular").
+  // If we already saw "Regular" and the PDF text mentions italic/oblique, ensure
+  // we emit a generic Italic candidate so coverage tokens include regularitalic.
+  if (out.has("Regular")) {
+    const mentionsItalic = /\b(?:italic|oblique)\b/i.test(normalized);
+    const hasRegularItalic = out.has("Italic") || out.has("Regular Italic") || out.has("Regular Oblique");
+    if (mentionsItalic && !hasRegularItalic) {
+      out.add("Italic");
+    }
+  }
+
   return Array.from(out).sort();
 };
 
@@ -539,46 +907,143 @@ const extractLanguageHints = (text: string): string[] => {
   return out;
 };
 
+const collectCoverageTokens = (value: string): string[] => {
+  const out = new Set<string>();
+  const add = (candidate: string) => {
+    const token = normalizeStyleCoverageToken(candidate);
+    if (token) out.add(token);
+  };
+
+  const normalized = normalizeStyleLabel(value);
+  if (normalized) add(normalized);
+  add(value);
+
+  for (const candidate of extractStyleCandidates(normalized || value)) {
+    add(candidate);
+  }
+
+  return Array.from(out);
+};
+
+const SPECIMEN_VARIANT_NUMBER_WORDS = new Set([
+  "one",
+  "two",
+  "three",
+  "four",
+  "five",
+  "six",
+  "seven",
+  "eight",
+  "nine",
+  "ten",
+  "eleven",
+  "twelve",
+  "thirteen",
+  "fourteen",
+  "fifteen",
+  "sixteen"
+]);
+
+const specimenMentionsTargetFamily = (text: string, matchers: TargetFamilyMatchers): boolean => {
+  const normalizedWords = splitNormalizedWords(text);
+  if (normalizedWords.length === 0) return false;
+  const joined = normalizedWords.join(" ");
+  const collapsed = familyWordsToToken(normalizedWords);
+
+  for (const sequence of matchers.familyWordSequences) {
+    const phrase = sequence.join(" ");
+    if (phrase && joined.includes(phrase)) return true;
+  }
+
+  return matchers.familyTokens.some((token) => token && collapsed.includes(token));
+};
+
+const extractExpectedStyleTailWords = (styleLabel: string, matchers: TargetFamilyMatchers): string[] => {
+  const words = splitNormalizedWords(styleLabel);
+  for (const familyWords of matchers.familyWordSequences) {
+    if (familyWords.length === 0 || words.length <= familyWords.length) continue;
+    let allMatch = true;
+    for (let index = 0; index < familyWords.length; index += 1) {
+      if (words[index] !== familyWords[index]) {
+        allMatch = false;
+        break;
+      }
+    }
+    if (allMatch) return words.slice(familyWords.length);
+  }
+  return words;
+};
+
+const isStructuredVariantTail = (words: string[]): boolean => {
+  if (words.length === 0) return false;
+  return words.every(
+    (word) => /^\d+$/.test(word) || word.length === 1 || SPECIMEN_VARIANT_NUMBER_WORDS.has(word)
+  );
+};
+
+const shouldRelaxSpecimenCoverageWarning = (params: {
+  expectedStyles: string[];
+  matchers: TargetFamilyMatchers;
+  downloadedPdfCount: number;
+  styleCandidateCount: number;
+  familyMentionedInSpecimen: boolean;
+}): boolean => {
+  const { expectedStyles, matchers, downloadedPdfCount, styleCandidateCount, familyMentionedInSpecimen } = params;
+  if (downloadedPdfCount === 0 || styleCandidateCount > 0 || !familyMentionedInSpecimen) return false;
+  if (matchers.familyTokens.some((token) => token.includes("icons"))) return true;
+  if (expectedStyles.length >= 16) return true;
+  return expectedStyles.length > 0 && expectedStyles.every((style) => isStructuredVariantTail(extractExpectedStyleTailWords(style, matchers)));
+};
+
 const buildCoverage = (params: {
   expectedStyles: string[];
   observedStyles: string[];
   specimenStyles: string[];
 }): Record<string, unknown> => {
   const { expectedStyles, observedStyles, specimenStyles } = params;
-  const toMap = (items: string[]) => {
-    const map = new Map<string, string>();
+  const buildEntries = (items: string[]) => {
+    const seen = new Set<string>();
+    const entries: Array<{ label: string; tokens: string[] }> = [];
     for (const item of items) {
-      const token = normalizeStyleCoverageToken(item);
-      if (!token) continue;
-      if (!map.has(token)) map.set(token, item);
+      const label = item.replace(/\s+/g, " ").trim();
+      if (!label) continue;
+      const key = label.toLowerCase();
+      if (seen.has(key)) continue;
+      seen.add(key);
+      entries.push({ label, tokens: collectCoverageTokens(label) });
     }
-    return map;
+    return entries;
   };
 
-  const expectedMap = toMap(expectedStyles);
-  const observedMap = toMap(observedStyles);
-  const specimenMap = toMap(specimenStyles);
+  const expectedEntries = buildEntries(expectedStyles);
+  const observedEntries = buildEntries(observedStyles);
+  const specimenEntries = buildEntries(specimenStyles);
+  const specimenTokens = new Set(specimenEntries.flatMap((entry) => entry.tokens));
 
-  const specimenVsExpectedMatched = Array.from(expectedMap.keys()).filter((token) => specimenMap.has(token));
-  const specimenVsObservedMatched = Array.from(observedMap.keys()).filter((token) => specimenMap.has(token));
+  const specimenVsExpectedMatched = expectedEntries.filter((entry) => entry.tokens.some((token) => specimenTokens.has(token)));
+  const specimenVsObservedMatched = observedEntries.filter((entry) => entry.tokens.some((token) => specimenTokens.has(token)));
 
-  const missingFromSpecimenExpected = Array.from(expectedMap.entries())
-    .filter(([token]) => !specimenMap.has(token))
-    .map(([, label]) => label);
-  const missingFromSpecimenObserved = Array.from(observedMap.entries())
-    .filter(([token]) => !specimenMap.has(token))
-    .map(([, label]) => label);
+  const missingFromSpecimenExpected = expectedEntries
+    .filter((entry) => !entry.tokens.some((token) => specimenTokens.has(token)))
+    .map((entry) => entry.label);
+  const missingFromSpecimenObserved = observedEntries
+    .filter((entry) => !entry.tokens.some((token) => specimenTokens.has(token)))
+    .map((entry) => entry.label);
 
   return {
-    expectedStyleCount: expectedMap.size,
-    observedStyleCount: observedMap.size,
-    specimenStyleCount: specimenMap.size,
+    expectedStyleCount: expectedEntries.length,
+    observedStyleCount: observedEntries.length,
+    specimenStyleCount: specimenEntries.length,
     specimenVsExpectedMatchedCount: specimenVsExpectedMatched.length,
     specimenVsObservedMatchedCount: specimenVsObservedMatched.length,
     specimenVsExpectedAccuracyPct:
-      expectedMap.size > 0 ? Number(((specimenVsExpectedMatched.length / expectedMap.size) * 100).toFixed(2)) : undefined,
+      expectedEntries.length > 0
+        ? Number(((specimenVsExpectedMatched.length / expectedEntries.length) * 100).toFixed(2))
+        : undefined,
     specimenVsObservedAccuracyPct:
-      observedMap.size > 0 ? Number(((specimenVsObservedMatched.length / observedMap.size) * 100).toFixed(2)) : undefined,
+      observedEntries.length > 0
+        ? Number(((specimenVsObservedMatched.length / observedEntries.length) * 100).toFixed(2))
+        : undefined,
     missingFromSpecimenExpected,
     missingFromSpecimenObserved
   };
@@ -622,21 +1087,6 @@ export const collectSpecimenPdfAudit = async (params: {
   const pageUrls = collectCandidatePages(request).slice(0, maxPageUrls);
   if (pageUrls.length === 0) return undefined;
 
-  const pdfCandidates = new Map<string, PdfCandidate>();
-  const addPdfCandidate = (candidate: PdfCandidate) => {
-    const url = candidate.url?.trim();
-    if (!url) return;
-    if (!pdfCandidates.has(url)) {
-      pdfCandidates.set(url, { url, suggestedFileName: candidate.suggestedFileName });
-      return;
-    }
-    const existing = pdfCandidates.get(url);
-    if (existing && !existing.suggestedFileName && candidate.suggestedFileName) {
-      existing.suggestedFileName = candidate.suggestedFileName;
-    }
-  };
-  const pageScans: Array<{ pageUrl: string; pdfCount: number; error?: string }> = [];
-
   const metadataSeedCandidates = new Set<string>();
   const addMetadataSeed = (value: unknown) => {
     if (typeof value !== "string") return;
@@ -657,26 +1107,79 @@ export const collectSpecimenPdfAudit = async (params: {
 
   if (isRecord(request.metadata)) {
     addMetadataSeedMany(request.metadata.specimenPdfUrls);
+    addMetadataSeedMany(request.metadata.technicalPdfUrls);
+    addMetadataSeedMany(request.metadata.pdfUrls);
     if (isRecord(request.metadata.targetProfile)) {
       addMetadataSeedMany(request.metadata.targetProfile.specimenPdfUrls);
+      addMetadataSeedMany(request.metadata.targetProfile.technicalPdfUrls);
+      addMetadataSeedMany(request.metadata.targetProfile.pdfUrls);
     }
     const fonts = Array.isArray(request.metadata.fonts) ? request.metadata.fonts : [];
     for (const font of fonts) {
       if (!isRecord(font) || !isRecord(font.metadata)) continue;
       addMetadataSeedMany(font.metadata.specimenPdfUrls);
+      addMetadataSeedMany(font.metadata.technicalPdfUrls);
+      addMetadataSeedMany(font.metadata.pdfUrls);
       if (isRecord(font.metadata.targetProfile)) {
         addMetadataSeedMany(font.metadata.targetProfile.specimenPdfUrls);
+        addMetadataSeedMany(font.metadata.targetProfile.technicalPdfUrls);
+        addMetadataSeedMany(font.metadata.targetProfile.pdfUrls);
       }
     }
   }
 
-  for (const url of metadataSeedCandidates) addPdfCandidate({ url });
+  const targetFamilyMatchers = deriveTargetFamilyMatchers(request, Array.from(metadataSeedCandidates));
+  const pdfCandidates = new Map<string, PdfCandidate>();
+  let rejectedPdfCandidateCount = 0;
+  const rejectedPdfCandidatesSample: Array<{ url: string; source: "page-scan" | "lineto-derived" }> = [];
+
+  type CandidateAddSource = "metadata-seed" | "page-scan" | "lineto-derived";
+  type CandidateAddResult = "accepted" | "duplicate" | "rejected" | "invalid";
+  const addPdfCandidate = (candidate: PdfCandidate, source: CandidateAddSource): CandidateAddResult => {
+    const url = candidate.url?.trim();
+    if (!url) return "invalid";
+
+    const relevantByFamily = isPdfCandidateRelevant(candidate, targetFamilyMatchers);
+    const trustedOpaque = isTrustedOpaquePdfCandidate(candidate, request.targetUrl);
+    if (source !== "metadata-seed" && !relevantByFamily && !trustedOpaque) {
+      rejectedPdfCandidateCount += 1;
+      if (
+        rejectedPdfCandidatesSample.length < 20 &&
+        (source === "page-scan" || source === "lineto-derived")
+      ) {
+        rejectedPdfCandidatesSample.push({ url, source });
+      }
+      return "rejected";
+    }
+
+    if (!pdfCandidates.has(url)) {
+      pdfCandidates.set(url, { url, suggestedFileName: candidate.suggestedFileName });
+      return "accepted";
+    }
+    const existing = pdfCandidates.get(url);
+    if (existing && !existing.suggestedFileName && candidate.suggestedFileName) {
+      existing.suggestedFileName = candidate.suggestedFileName;
+    }
+    return "duplicate";
+  };
+
+  const pageScans: Array<{
+    pageUrl: string;
+    discoveredPdfCount: number;
+    acceptedPdfCount: number;
+    rejectedPdfCount: number;
+    error?: string;
+  }> = [];
+
+  for (const url of metadataSeedCandidates) addPdfCandidate({ url }, "metadata-seed");
 
   for (const pageUrl of pageUrls) {
     if (isOverBudget()) {
       pageScans.push({
         pageUrl,
-        pdfCount: 0,
+        discoveredPdfCount: 0,
+        acceptedPdfCount: 0,
+        rejectedPdfCount: 0,
         error: "Specimen audit timed out before page scan."
       });
       break;
@@ -687,17 +1190,37 @@ export const collectSpecimenPdfAudit = async (params: {
         "User-Agent": BROWSER_UA
       });
       const extracted = extractPdfUrlsFromHtml(html, pageUrl);
-      for (const url of extracted) addPdfCandidate({ url });
-
       const linetoTechnical = extractLinetoTechnicalPdfCandidates(html, pageUrl);
-      for (const candidate of linetoTechnical) addPdfCandidate(candidate);
 
-      pageScans.push({ pageUrl, pdfCount: extracted.length + linetoTechnical.length });
-      await onProgress(`[Specimen] scanned ${pageUrl} -> ${extracted.length + linetoTechnical.length} pdf candidates`);
+      let acceptedCount = 0;
+      let rejectedCount = 0;
+      for (const url of extracted) {
+        const result = addPdfCandidate({ url }, "page-scan");
+        if (result === "accepted" || result === "duplicate") acceptedCount += 1;
+        if (result === "rejected") rejectedCount += 1;
+      }
+      for (const candidate of linetoTechnical) {
+        const result = addPdfCandidate(candidate, "lineto-derived");
+        if (result === "accepted" || result === "duplicate") acceptedCount += 1;
+        if (result === "rejected") rejectedCount += 1;
+      }
+
+      const discoveredPdfCount = extracted.length + linetoTechnical.length;
+      pageScans.push({
+        pageUrl,
+        discoveredPdfCount,
+        acceptedPdfCount: acceptedCount,
+        rejectedPdfCount: rejectedCount
+      });
+      await onProgress(
+        `[Specimen] scanned ${pageUrl} -> ${acceptedCount}/${discoveredPdfCount} relevant pdf candidates`
+      );
     } catch (error) {
       pageScans.push({
         pageUrl,
-        pdfCount: 0,
+        discoveredPdfCount: 0,
+        acceptedPdfCount: 0,
+        rejectedPdfCount: 0,
         error: error instanceof Error ? error.message : String(error)
       });
     }
@@ -710,6 +1233,12 @@ export const collectSpecimenPdfAudit = async (params: {
       pageUrlsScanned: pageUrls,
       pageScans,
       specimenPdfCount: 0,
+      filtering: {
+        targetFamilyTokens: targetFamilyMatchers.familyTokens,
+        targetFamilyWordSequences: targetFamilyMatchers.familyWordSequences.map((words) => words.join(" ")),
+        rejectedPdfCandidateCount,
+        rejectedPdfCandidatesSample
+      },
       status: "warn",
       note: "No specimen PDF links discovered on scanned pages."
     };
@@ -729,6 +1258,7 @@ export const collectSpecimenPdfAudit = async (params: {
 
   let totalTextLength = 0;
   let timedOut = false;
+  let familyMentionedInSpecimen = false;
 
   for (const candidate of Array.from(pdfCandidates.values()).slice(0, maxPdfCandidates)) {
     if (isOverBudget()) {
@@ -797,6 +1327,9 @@ export const collectSpecimenPdfAudit = async (params: {
       const localStyles = extractStyleCandidates(parsedText);
       const localFeatures = extractFeatureTags(parsedText);
       const localLanguages = extractLanguageHints(parsedText);
+      if (!familyMentionedInSpecimen && specimenMentionsTargetFamily(parsedText, targetFamilyMatchers)) {
+        familyMentionedInSpecimen = true;
+      }
       for (const style of localStyles) styleCandidates.add(style);
       for (const feature of localFeatures) featureTags.add(feature);
       for (const lang of localLanguages) languageHints.add(lang);
@@ -833,9 +1366,16 @@ export const collectSpecimenPdfAudit = async (params: {
   const expectedMissing = Array.isArray(coverage.missingFromSpecimenExpected)
     ? coverage.missingFromSpecimenExpected.length
     : 0;
+  const relaxCoverageWarning = shouldRelaxSpecimenCoverageWarning({
+    expectedStyles,
+    matchers: targetFamilyMatchers,
+    downloadedPdfCount: downloadedPdfs.length,
+    styleCandidateCount: styleCandidates.size,
+    familyMentionedInSpecimen
+  });
   if (downloadedPdfs.length === 0) {
     status = "fail";
-  } else if (expectedCount > 0 && expectedMissing > 0) {
+  } else if (expectedCount > 0 && expectedMissing > 0 && !relaxCoverageWarning) {
     status = "warn";
   } else if (skipped.length > 0) {
     status = "warn";
@@ -852,6 +1392,12 @@ export const collectSpecimenPdfAudit = async (params: {
     pageScans,
     specimenPdfCount: downloadedPdfs.length,
     skippedPdfCount: skipped.length,
+    filtering: {
+      targetFamilyTokens: targetFamilyMatchers.familyTokens,
+      targetFamilyWordSequences: targetFamilyMatchers.familyWordSequences.map((words) => words.join(" ")),
+      rejectedPdfCandidateCount,
+      rejectedPdfCandidatesSample
+    },
     downloadedPdfs,
     skipped,
     extracted: {
@@ -865,7 +1411,17 @@ export const collectSpecimenPdfAudit = async (params: {
       maxTotalMs,
       timedOut
     },
+    heuristics: {
+      familyMentionedInSpecimen,
+      relaxedCoverageWarning: relaxCoverageWarning
+    },
     coverage,
     status
   };
 };
+
+
+
+
+
+

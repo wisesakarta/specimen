@@ -1,4 +1,4 @@
-import { Scraper, ScrapeResult, FontMetadata } from "./types";
+import { Scraper, ScrapeResult, FontMetadata } from "./scraper-protocol";
 
 const DINAMO_UA =
   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36";
@@ -565,12 +565,10 @@ const buildDinamoProvocationScript = (familyName: string): string => {
     (async () => {
       // Setup logging to communicate with Puppeteer
       if (!window.__specimen_logs) window.__specimen_logs = [];
-      if (!window.__saka_logs) window.__saka_logs = window.__specimen_logs;
       const log = (msg) => {
         console.log(msg);
         window.__specimen_logs.push(msg);
         if (window.__specimen_logs.length > 50) window.__specimen_logs.shift();
-        window.__saka_logs = window.__specimen_logs;
       };
       
       const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -797,7 +795,7 @@ const buildDinamoProvocationScript = (familyName: string): string => {
       await sleep(500);
       log("[SPECIMEN] Provokasi Dinamo completed successfully!");
       window.__specimen_extraction_complete = true;
-      window.__saka_extraction_complete = true;
+      window.__specimen_extraction_complete = true;
     })();
   `;
 };

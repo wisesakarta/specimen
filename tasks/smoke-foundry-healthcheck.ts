@@ -25,6 +25,7 @@ const CASES: HealthcheckCase[] = [
   { id: "205tf", name: "205TF", url: "https://www.205.tf/pinokio-sans" },
   { id: "a2-type", name: "A2 Type", url: "https://a2-type.co.uk/ny-sans" },
   { id: "abc-dinamo", name: "ABC Dinamo", url: "https://abcdinamo.com/typefaces/gravity" },
+  { id: "abjad-type", name: "Abjad Type", url: "https://www.abjadfonts.com/fonts/miknas" },
   { id: "cotype", name: "CoType", url: "https://cotypefoundry.com/font-family/aeonik" },
   { id: "lineto", name: "Lineto", url: "https://lineto.com/typefaces/akkurat" }
 ];
@@ -135,3 +136,4 @@ run().catch((error) => {
   console.error("Smoke healthcheck failed:", error);
   process.exitCode = 1;
 });
+

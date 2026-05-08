@@ -30,7 +30,8 @@ const CASES: InterceptCase[] = [
   { id: "a2-type", name: "A2 Type", url: "https://a2-type.co.uk/ny-sans", minDownloaded: 1 },
   { id: "abc-dinamo", name: "ABC Dinamo", url: "https://abcdinamo.com/typefaces/gravity", minDownloaded: 1 },
   { id: "cotype", name: "CoType", url: "https://cotypefoundry.com/font-family/aeonik", minDownloaded: 6 },
-  { id: "lineto", name: "Lineto", url: "https://lineto.com/typefaces/akkurat-mono", minDownloaded: 1 }
+  { id: "lineto", name: "Lineto", url: "https://lineto.com/typefaces/akkurat-mono", minDownloaded: 1 },
+  { id: "typefaces-pizza", name: "Typefaces Pizza", url: "https://typefaces.pizza/type/westy", minDownloaded: 1 }
 ];
 
 const toReportTimestamp = (input = new Date()): string =>

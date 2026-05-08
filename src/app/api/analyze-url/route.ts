@@ -1,6 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { scrapers } from "@/lib/scrapers";
-import { ScrapeResult } from "@/lib/scrapers/types";
+import { ScrapeResult } from "@/lib/scrapers/scraper-protocol";
+
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
 
 const normalizeInputUrl = (rawUrl: unknown): string => {
   if (typeof rawUrl !== "string" || !rawUrl.trim()) {
@@ -46,3 +49,4 @@ export async function POST(req: NextRequest) {
     }, { status });
   }
 }
+
