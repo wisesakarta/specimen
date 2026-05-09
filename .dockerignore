@@ -5,4 +5,5 @@ node_modules
 tools/debug
 OTSO_AGENTS.md
 *.log
-.env.local
+.env*
+AGENTS.md
