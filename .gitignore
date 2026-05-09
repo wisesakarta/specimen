@@ -19,6 +19,8 @@ tmp-*
 .tmp-*
 .temp-*/
 .temp-*
+tools/debug/
+OTSO_AGENTS.md
 
 # Python cache
 **/__pycache__/

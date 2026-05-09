@@ -26,25 +26,31 @@ SPECIMEN does not exist to imitate the past. SPECIMEN explicitly rejects nostalg
 
 SPECIMEN exists to restore legitimacy to software engineering and runtime design. It is a civilizational rejection of disposable abstraction culture, generic interface homogenization, and velocity-driven engineering decay. Software must once again become operationally coherent, materially believable, architecturally intentional, emotionally resonant, and worthy of long-term human authorship.
 
-### 1. Software as Craftsmanship
-Software is not feature assembly. Software is authored engineering. 
-Legitimacy is forged in the details. The naming of variables, the topology of state, the cadence of interactions, the physics of motion, the rigor of the architecture, and the operational coherence of the system are the artifacts of true craftsmanship. A legitimate system leaves no trace of careless assembly.
+### 0. The Prime Belief: Software as Tool for Thought
+Good software is not a distraction. It exists to serve and empower without inflicting damage on the human condition. Following the "Tools for Thought" principle, Specimen operates as a perambulator for the intellect—it does not demand attention; it rewards investigation. It is a servant of human intent, not a merchant of human focus.
 
-### 2. Software as Material Experience
+### 1. Software as Craftsmanship (Human-Scale Habitat)
+Software is not feature assembly. Software is authored engineering. 
+Legitimacy is forged in the details. The naming of variables, the topology of state, the physics of motion, and the operational coherence of the system are the artifacts of true craftsmanship.
+- **Human-Scale Habitat**: We reject digital alienation. Software must respect the cognitive and emotional limits of the inhabitant. Specimen utilizes **Calm Technology**—statically predictable, non-invasive, and "habitable." It does not utilize aggressive notifications or infinite loops of distraction.
+
+### 2. Software as Material Experience (Sovereignty as Agency)
 Software must feel spatial, mechanical, tactile, and materially authored. 
 SPECIMEN explicitly rejects frictionless genericity, sterile interface flattening, and abstraction without presence. A legitimate runtime environment possesses physical weight; its boundaries are firm, its interfaces possess dimension, and its operations have tactile consequence.
+- **Sovereignty as Agency**: In the spirit of humanism, the user is a subject with free will, not a target for algorithmic paternalism. We provide **Instruments, Not Services**. Specimen does not feed the user automated decisions; it provides the tools (Terminal, Monitor, Explorer) for autonomous reflection, investigation, and sovereignty. The user is a **Sovereign Observer**, not a passive consumer.
 
-### 3. Software as Intellectual Work
+### 3. Software as Intellectual Work (The Ethics of Authorship)
 Engineering must demand systems thinking, topology reasoning, and an uncompromising grasp of runtime governance and deterministic execution. 
-SPECIMEN rejects framework-dependent thinking, abstraction cargo culting, and architecture-by-trend. Engineers do not passively wire components together; they author deterministic state machines and govern operational logic with profound understanding.
+- **The Ethics of Authorship**: Every line of code is an intellectual statement—a form of **Software Literature**. Variable naming, state structure, and interaction cadence are cultural discourses. The engineer is not a technical laborer, but an author of a cultural artifact, responsible for the intellectual and emotional resonance of the system.
 
-### 4. Software as Cultural Artifact
+### 4. Software as Cultural Artifact (Digital Dignity & Privacy)
 Software should possess an unmistakable identity, a coherent worldview, an immersive atmosphere, and unambiguous authorship. 
-SPECIMEN rejects generic SaaS homogenization, template culture, and the interchangeable flattening of interface design. A legitimate system operates as a civilization surface that feels inhabited, culturally distinct, and architecturally permanent.
+- **Digital Dignity & Privacy**: Sovereignty is the architectural enforcement of digital human rights. Specimen operates as a **Sovereign Sanctuary** (Digital Sanctuary). By utilizing an isolated, deterministic VFS and runtime, we protect the inhabitant's dignity from invasive data-mining cultures. Data is an extension of human privacy, not a commodity to be exploited.
 
 ### 5. Software as Sovereign System
 Software must become internally coherent, governance-aware, runtime-conscious, and architecturally sovereign. 
 This doctrine demands strict boundary enforcement. Window authority extraction, persistence determinism, sovereignty normalization, and runtime citizenship legitimacy (Phases 1–3) are the architectural enforcement of systemic sovereignty. The shell governs space and lifecycle; the citizen executes its domain. Parallel governance is eradicated to ensure single-source operational truth.
+l truth.
 
 ---
 
@@ -328,12 +334,16 @@ Before a new scraper is considered complete:
 
 ## Section IV — Output Quality Standard (Downstream)
 
-### 4.1 Berkeley Mono Reference
+### 4.1 Berkeley Mono (Output Artifact Reference)
+
+**Berkeley Mono** serves as the **absolute benchmark for output perfection** (Artifact Legitimacy) produced by the Specimen Analyzer. It is NOT the primary UI font for the OS. 
+
+All font artifacts generated, organized, and packaged by the system must adhere to the high-density structural integrity and naming precision established by the Berkeley Mono standard.
 
 **Reference path:** `E:\Downloads\U_S_Graphics_-_Berkeley_Mono_v2_002\Berkeley Mono v2.002\`
 
 ```
-Mandatory structure generated by the system:
+Mandatory structure generated by the system for Analyzer Outputs:
 
 {Foundry_Name}_-_{Family_Name}/       ← naming: underscores, proper case
   TTF/                                 ← desktop use (.ttf)
@@ -342,6 +352,10 @@ Mandatory structure generated by the system:
     Woff2/                             ← web delivery, primary (.woff2)
     Woff/                              ← web delivery, fallback (.woff)
 ```
+
+### 4.2 Departure Mono (Default Sovereign Typeface)
+
+**Departure Mono** is the canonical typeface for the **Specimen OS Runtime Environment**. It provides the primary visual voice for all Sovereign Citizens, Terminal interfaces, and system-level introspection surfaces. Its use ensures technical clarity and a high-fidelity workstation aesthetic.
 
 **Actual Example:**
 ```
@@ -397,6 +411,22 @@ npm run typecheck
 - **Any output = Stop** — resolve all errors before proceeding.
 - No dispensations for "just a small file" or "just a rename."
 - Applies to ALL agents.
+
+### 5.6 Bell Labs QA Protocol (Mandatory)
+
+Whenever a **"full testing"** instruction is given, the Agent **MUST** perform comprehensive testing equivalent to a **Bell Labs QA** engineer for a UNIX operating system.
+
+**Port Management & Efficiency:**
+- **Audit Before Execution**: Before starting a new dev server, check if any relevant port (e.g., 3000, 3001) is already active.
+- **Reuse Over Redundancy**: If a port is active, utilize the existing environment for testing instead of spawning a new process.
+- **Zero Ghosting**: Do not leave redundant or "zombie" processes running after testing is complete unless explicitly instructed.
+
+**Testing Rigor:**
+1.  **VFS Integrity**: Ensure file changes in one application (e.g., Notepad) are reflected instantly in others (e.g., Explorer).
+2.  **Materiality**: Verify data persistence after browser refresh. Data must not be lost.
+3.  **Spatial Sovereignty**: Test Maximization, Minimize, and Z-Index behavior. No illegal overlaps with the Taskbar.
+4.  **Zero-Regression**: Run `npx tsc --noEmit` before reporting results.
+5.  **Brutal Reporting**: Reports must use a cold, objective, and unforgiving technical tone toward even the smallest defects.
 
 ### 5.2 Anti-Regression Protocol
 
@@ -507,6 +537,66 @@ To ensure semantic consistency, searchability, and global maintainability, **Eng
 - User-generated content.
 - External quoted material.
 - Localization system data (where explicitly required for target locales).
+
+### 5.10 Repository Sovereignty (Git & Branching)
+
+Agent utilizes a **Pragmatic Trunk-Based Development** strategy, categorizing changes by risk level to preserve repository legitimacy.
+
+**Category A: Direct-to-Main (Low Risk)**
+Changes permitted to be committed and pushed directly to `main`:
+- `docs:` — Documentation updates (README, comments, KDoc).
+- `chore:` — Housekeeping (.gitignore, garbage file cleanup, version bumps).
+- `ci:` — CI/CD pipeline changes (GitHub Actions, release configs).
+- `style:` — Cosmetic changes without logic impact (formatting, whitespace).
+*Requirement: Changes must not touch runtime executable code.*
+
+**Category B: Mandatory Branching (High Risk)**
+Changes requiring a dedicated branch and validation before merging:
+- `feature/<name>` — New capabilities.
+- `fix/<name>` — Bug resolutions.
+- `hotfix/<name>` — Urgent critical repairs.
+- `refactor/<name>` — Structural code modifications.
+*Requirement: Any change touching runtime logic (TS/JS/CSS, dependencies) MUST use a branch → validation → merge.*
+
+**Identity Sovereignty:**
+- Always use the **repository owner's authenticated credentials**.
+- **PROHIBITED**: Using fake agent identities or modifying `git user.name`/`email` without explicit authorization.
+- **PROHIBITED**: Modifying SSH keys, tokens, signing keys, or remote URLs.
+
+### 5.11 Infrastructure Governance (Home Server & Deployment)
+
+Operational interaction with the **Home Server (Specimen Labs)** must adhere to the following infrastructure map:
+
+1. **Physical Access & Connectivity:**
+   - **Primary User:** `wisesa` (Execute all commands under this identity).
+   - **Tailscale IP:** `100.90.222.22`
+   - **Connection Protocol:** `ssh wisesa@100.90.222.22`
+
+2. **Critical Server Pathing:**
+   - **Active Projects:** `/home/wisesa/10Projects/active/`
+   - **Data Lake:** `/home/wisesa/otso-vision/datasets/`
+
+3. **Routing & Tunneling:**
+   - Domain `unittesting01.krtalabs.xyz` is permanently routed to `http://localhost:8083`.
+   - **Port 8083** is reserved for the primary production container.
+   - If a *502 Bad Gateway* is encountered, verify the container state immediately.
+   - **Port Conflict Mitigation**: Disable the production container before running temporary HTTP servers on port 8083 to prevent tunnel routing collisions.
+
+### 5.12 Environment Sovereignty (Dev vs Prod)
+
+Specimen enforces a strict boundary between experimental sandbox features and the production runtime.
+
+1. **Production (Sacred Space)**:
+   - The `main` branch and the `src/` root (excluding experimental directories) are sacred production territories. 
+   - Prohibited: Injecting experimental assets or beta logic into the production source sets without a formal convergence plan.
+
+2. **Sandbox (Experimental Space)**:
+   - Use dedicated debug/feature branches for all experiments, new iconography, or beta features.
+   - Asset Naming: Maintain clear distinction between Production assets (`ic_specimen_*`) and Experimental assets (`ic_beta_*`).
+
+3. **No Logic Leakage**:
+   - Utilize environment variables or conditional logic (`process.env.NODE_ENV`) to ensure experimental code is not bundled into production builds.
+   - Failure to preserve this boundary is a critical violation of the Stability Protocol.
 
 ---
 
