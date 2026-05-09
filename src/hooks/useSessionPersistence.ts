@@ -147,7 +147,7 @@ export function useSessionSave(liveState: {
     if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
     saveTimerRef.current = setTimeout(() => {
       const snapshot: SessionSnapshot = {
-        version: 1,
+        version: 2,
         vfsNodes: vfs,
         windows: windows.map(serializeWindow),
         recents,
