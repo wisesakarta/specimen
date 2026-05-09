@@ -396,6 +396,8 @@ def _get_worker_font(input_path: str) -> TTFont:
 
 def _save_instance_job(job):
     input_path, family_name, style_name, coordinates, out_path = job
+    if os.path.exists(out_path):
+        return out_path
     base_font = _get_worker_font(str(input_path))
     static_font = instantiateVariableFont(base_font, coordinates, inplace=False)
     _patch_name_table(static_font, family_name, style_name)

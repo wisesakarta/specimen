@@ -829,7 +829,7 @@ const deriveFoundryToken = (metadata?: any): string | undefined => {
 const makeJobFolder = (outputFolder?: string, metadata?: any): string => {
   // Use downloads root for explicit output folders, otherwise keep transient staging flow.
   const root = outputFolder ? path.join(baseDownloadRoot, toSafeOutputFolderPath(outputFolder)) : stagingRoot;
-  const finalize = (candidate: string): string => (outputFolder ? candidate : ensureUniqueDirPath(candidate));
+  const finalize = (candidate: string): string => candidate;
 
   const deriveFromFonts = (): { foundry?: string; family?: string; category?: string } => {
     const fonts = Array.isArray(metadata?.fonts) ? metadata.fonts : [];
@@ -2898,12 +2898,17 @@ export const runBatchDirectDownload = async (request: BatchDirectRequest): Promi
 
        const filePath = ensureUniqueFilePath(outputDir, fileName);
        fileName = path.basename(filePath);
-       emitLog(`[Batch Direct] downloading ${fileName}`);
-       if (inlineAsset) {
-         await writeFile(filePath, inlineAsset.buffer);
+       
+       if (fs.existsSync(filePath)) {
+         emitLog(`[Batch Direct] ${fileName} already exists, skipping download.`);
        } else {
-         const downloadRetryBudget = resolveDownloadRetryBudget(request, request.metadata, font.metadata);
-         await downloadBinary(fileUrl, filePath, perFontHeaders, downloadRetryBudget);
+         emitLog(`[Batch Direct] downloading ${fileName}`);
+         if (inlineAsset) {
+           await writeFile(filePath, inlineAsset.buffer);
+         } else {
+           const downloadRetryBudget = resolveDownloadRetryBudget(request, request.metadata, font.metadata);
+           await downloadBinary(fileUrl, filePath, perFontHeaders, downloadRetryBudget);
+         }
        }
       const fileBuffer = await readFile(filePath);
       const contentHash = crypto.createHash("sha256").update(fileBuffer).digest("hex");

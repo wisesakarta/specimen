@@ -315,7 +315,8 @@ export async function POST(request: Request): Promise<Response> {
                     controller.close();
                     
                     // Delayed cleanup
-                    setTimeout(() => ZipService.autoCleanup(result.outputDir), 5000);
+                    // Delayed cleanup disabled for sovereign persistence
+                    // setTimeout(() => ZipService.autoCleanup(result.outputDir), 5000);
                 } catch (error) {
                     const message = error instanceof Error ? error.message : "Stream Error";
                     console.error("[API] Stream failed:", message);
@@ -342,7 +343,8 @@ export async function POST(request: Request): Promise<Response> {
     const fileName = `${zipFileBase}.zip`;
 
     // Trigger auto-cleanup in background
-    setTimeout(() => ZipService.autoCleanup(result.outputDir), 10000);
+    // Trigger auto-cleanup in background disabled for sovereign persistence
+    // setTimeout(() => ZipService.autoCleanup(result.outputDir), 10000);
 
     return new Response(new Uint8Array(zipBuffer), {
       headers: {
