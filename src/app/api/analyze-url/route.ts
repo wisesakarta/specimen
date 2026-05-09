@@ -17,6 +17,13 @@ const normalizeInputUrl = (rawUrl: unknown): string => {
 
 export async function POST(req: NextRequest) {
   try {
+    // Security Gate: Verify internal secret
+    const secret = req.headers.get("x-specimen-secret");
+    if (secret !== process.env.INTERNAL_SECRET) {
+      console.warn(`[Security] Unauthorized access attempt from ${req.ip}`);
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
     const body = await req.json();
     const url = normalizeInputUrl(body?.url);
 
