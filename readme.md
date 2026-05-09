@@ -1,58 +1,56 @@
-# Specimen
+# SPECIMEN
+### Sovereign Runtime Environment for Technical Font Auditing
 
-Internal utility for analyzing foundry pages and collecting font assets into structured ZIP packages.
-Developed by `Technical Standard`.
+SPECIMEN is a specialized operational instrument designed for high-fidelity font asset retrieval, structural auditing, and deterministic runtime validation. It exists to restore technical legitimacy to the process of font asset management.
 
-## Current Status
-- Phase 1 implemented: scraper routing, download engine, zip delivery, and staging cleanup.
-- Phase 2 planning baseline:
-  - `TECHNICAL_BLUEPRINT_ABCDINAMO.md`
-  - `STRATEGIC_ANALYSIS.md`
+Developed and maintained by **Technical Standard** (Specimen Labs).
+**Founder & Lead Architect:** Karta Wisesa
 
-## Features
-- URL analysis via scraper registry (`/api/analyze-url`)
-- Foundry-specific extraction strategies (direct URL and browser intercept)
-- Batch direct download with format conversion (`woff2` -> `ttf`/`woff`, optional `otf`)
-- ZIP response delivery from API
-- Temporary folder cleanup after delivery
+---
 
-## Requirements
-- Node.js 20+
-- Python 3 with `fonttools` (for conversion pipeline)
+## Operational Doctrine
+SPECIMEN operates as a **Sovereign Runtime System** inside the browser. It rejects frictionless genericity in favor of material presence, operational honesty, and technical precision.
 
-## Run
+## Core Capabilities
+- **Procedural Analysis**: Deep URL inspection via a dedicated Scraper Registry.
+- **Sovereign Extraction**: Proprietary foundry-specific strategies (Direct CDN & Browser Intercept).
+- **Format Normalization**: Automated conversion pipeline (`woff2` → `ttf`, `woff`, `otf`).
+- **VFS Governance**: Isolated Virtual File System for session-based asset staging.
+- **Industrial Interface**: Historically literate Terminal Citizen and workstation-grade Explorer.
+
+## System Requirements
+- **Runtime**: Node.js 22+ (Docker Recommended)
+- **Engines**: Python 3.11+ with `fonttools` (for asset normalization)
+- **Sovereignty**: Tailscale / Cloudflare Tunnel for secure remote access.
+
+## Deployment & Execution
+### Local Development
 ```bash
 npm install
 npm run dev
 ```
-Open `http://localhost:3000`.
+Access the local runtime at `http://localhost:3000`.
 
-## Repo Hygiene (Before Commit)
+### Production (Docker)
 ```bash
-npm run cleanup:workspace:dry
+docker compose up --build -d
+```
+Production runtime operates on port **8085** as per infrastructure protocol.
+
+## Repository Sovereignty
+Before any commit to the sacred branch (`main`), the following hygiene protocol must be observed:
+```bash
 npm run cleanup:workspace
 npm run qa:baseline
 ```
+- `cleanup:workspace` purges all non-essential debug artifacts and transient logs.
+- `qa:baseline` enforces strict type-checking and health-check validation.
 
-- `cleanup:workspace` removes ad-hoc debug artifacts (`tmp-*`, `.tmp-*`, `.temp-*`, logs, `__pycache__`).
-- `downloads/` remains local and is ignored by git.
+---
 
-## Workflow
-1. Paste target URL in UI.
-2. Run analyze.
-3. Start download.
-4. System downloads and processes fonts.
-5. ZIP is delivered to browser download.
+## Intellectual Property & Usage
+- **License**: Distributed under **PolyForm Noncommercial 1.0.0**.
+- **Commercial Usage**: Requires an explicit agreement from Technical Standard (Specimen Labs).
+- **Compliance**: Asset usage rights remain the sole responsibility of the operator.
 
-## Output Behavior
-- Default: work files in `.temp-staging/` then zipped and cleaned.
-- Optional persisted output: `downloads/` when `outputFolder` is set.
-
-## Notes
-- Some variable fonts are heavy and can make progress look stuck during conversion.
-- License and usage compliance for collected fonts remains user/team responsibility.
-
-## License
-- This project is distributed under **PolyForm Noncommercial 1.0.0**. See `LICENSE`.
-- Required notices are listed in `NOTICE`.
-- Commercial usage requires a separate agreement. See `COMMERCIAL-LICENSE.md`.
+Copyright © 2026 Specimen Labs. All rights reserved.
