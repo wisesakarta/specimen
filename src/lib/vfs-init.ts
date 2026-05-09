@@ -179,7 +179,10 @@ export const DEFAULT_VFS: VFSNode[] = [
     type: "file",
     icon: "📄",
     appType: "NOTEPAD",
-    content: `Specimen Runtime Environment [v0.1.5]
+    content: `Specimen Runtime Environment [v${process.env.NEXT_PUBLIC_APP_VERSION || "0.1.5"}]
+Build: ${process.env.NEXT_PUBLIC_APP_BUILD || "2026.05.09"}
+Environment: ${process.env.NEXT_PUBLIC_APP_ENV || "development"}
+
 High-fidelity font asset retrieval and technical auditing system.
 
 This environment is maintained by the Technical Standard department of Specimen Labs. 

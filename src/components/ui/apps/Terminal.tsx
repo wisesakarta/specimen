@@ -8,7 +8,7 @@ import type { SovereignRuntimeProps } from "@/runtime/runtime-dispatch";
 import type { VFSNode } from "@/lib/os-config";
 import { cn } from "@/lib/style-composer";
 
-const SYSTEM_IDENTIFICATION_STRING = "Specimen Runtime Environment Version 0.1.5 (Build 2026.05.09)";
+const SYSTEM_IDENTIFICATION_STRING = `Specimen Runtime Environment Version ${process.env.NEXT_PUBLIC_APP_VERSION || "0.1.5"} (Build ${process.env.NEXT_PUBLIC_APP_BUILD || "2026.05.09"})`;
 const COMMAND_HISTORY_PERSISTENCE_KEY = "specimen_terminal_history";
 
 /**
