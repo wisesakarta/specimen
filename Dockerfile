@@ -9,7 +9,6 @@ WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 ENV NODE_ENV production
-ENV NODE_ENV production
 ENV NEXT_PUBLIC_APP_ENV production
 ENV NEXT_PUBLIC_APP_VERSION 0.1.5
 ENV NEXT_PUBLIC_APP_BUILD 2026.05.09-prod
