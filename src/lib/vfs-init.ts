@@ -180,9 +180,7 @@ export const DEFAULT_VFS: VFSNode[] = [
     icon: "📄",
     appType: "NOTEPAD",
     content: `Specimen Runtime Environment [v${process.env.NEXT_PUBLIC_APP_VERSION || "0.1.5"}]
-Build: ${process.env.NEXT_PUBLIC_APP_BUILD || "2026.05.09"}
-Environment: ${process.env.NEXT_PUBLIC_APP_ENV || "development"}
-
+${process.env.NEXT_PUBLIC_APP_ENV === "development" ? `Build: ${process.env.NEXT_PUBLIC_APP_BUILD || "2026.05.09"}\nEnvironment: development\n` : ""}
 High-fidelity font asset retrieval and technical auditing system.
 
 This environment is maintained by the Technical Standard department of Specimen Labs. 
@@ -199,7 +197,7 @@ Credentials:
     type: "file",
     icon: "📄",
     appType: "NOTEPAD",
-    content: `INTEGRATED FOUNDRIES INVENTORY:
+    content: `Integrated Foundries Inventory:
 - 205TF
 - A2-Type
 - ABC Dinamo
