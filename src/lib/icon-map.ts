@@ -29,6 +29,7 @@ export const WIN95_ICON_MAP: Record<string, Win95IconEntry> = {
   "🗑️": { src16: "/win95-icons/RecycleEmpty_16x16_4.png",    src32: "/win95-icons/RecycleEmpty_32x32_4.png" },
   "🎨": { src16: "/win95-icons/Mspaint_16x16_4.png",        src32: "/win95-icons/Mspaint_32x32_4.png" },
   "📻": { src16: "/win95-icons/Mmsys100_16x16_4.png",        src32: "/win95-icons/Mmsys100_32x32_4.png" },
+  "⌨️": { src16: "/win95-icons/MsDos_16x16_32.png",         src32: "/win95-icons/MsDos_32x32_32.png" },
   "ShutDown": { 
     src16: "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAAm0lEQVR4AaXBgY3CMBBFwWe0fWU789/O1pUZIxLJ8uVEAjOFiaTORZIKg7GT1N2dT7ZtIyIYOlCMQVKvtXJFRDAzJq013J3/ZCYr41Tnr+DMgx89+JFxKrjKWGQmdxi7iOAqSUhCEoW3zg2SeJGESeq1Vu6ICA7GrrXGyt1ZZSYzY+Kbky05ZCaHzMTdWRVJnS9IYiiFt859heEJdTQ7t5rT7/4AAAAASUVORK5CYII=", 
     src32: "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAABQ0lEQVR4AcXBAW6DMBBFwedo78XezH9vtj6ZS5pURSgECoTOFN6Q1DmZpMKEsUBSd3fOMgwDEcGoA4WnGy9I6u7OWYZhICJ4xZiR1GutnCkiWGJMSOq1VlprXMVYkJkcVWultcY7xgJJHCNqZZXxVme/YIsbazofZWxWWNbZy1hT+CaJWitzpRSOMHYoJfglIHgQ0PkLYwcJaq3MlSL+ythIEpK4k8RZjM06v4KzGDtIQhJnMHbpnMVYJCD4NGNB75UrGAtaa5xNEpIYdUaSijETEXyCJCRx5+5kJqNuTEjiUyRx5+5kJj+MkaTOBdydzGTKJPVaK1eICOaMp9Ya/8E4IDPZwt1ZYsz44NxlS9ZIYovMZIkxFzw4qzKTVzITd2cLYyY9OcrdWSOJUbnxDyQxKoyMUURwFUmMCk+Fh851ChNfhxx7+xF1KZkAAAAASUVORK5CYII=" 

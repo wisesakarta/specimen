@@ -3,7 +3,7 @@
 import { useState, useMemo, Fragment, useEffect } from "react";
 import { motion } from "framer-motion";
 import type { ReactNode } from "react";
-import { type VFSNode, type AppType } from "@/lib/os-config";
+import { type VFSNode, type AppType, type WindowData } from "@/lib/os-config";
 import { cn } from "@/lib/style-composer";
 import Win95Window, { Win95MenuBar, Win95MenuItem, Win95StatusBar, Win95StatusPanel } from "../Win95Window";
 
@@ -177,12 +177,12 @@ function resolveInitialHistory(data: unknown, vfs: VFSNode[]): ExplorerView[] {
 
 interface ExplorerProps {
   vfs: VFSNode[];
-  initialData: unknown;
+  initialData: WindowData;
   runtimes: RuntimeSnapshot[];
   recents: import("@/lib/persistence").PersistedRecent[];
   onOpenNode: (node: VFSNode) => void;
   onFocusWindow: (id: string) => void;
-  onDataChange?: (session: ExplorerSession) => void;
+  onDataChange?: (session: WindowData) => void;
 }
 
 export default function Explorer({ vfs, initialData, runtimes, recents, onOpenNode, onFocusWindow, onDataChange }: ExplorerProps) {
@@ -207,7 +207,7 @@ export default function Explorer({ vfs, initialData, runtimes, recents, onOpenNo
     setHistory(newHistory);
     setView(next);
     setSelected(next.selectedId ?? null);
-    onDataChange?.({ viewStack: [...newHistory, next].map(serialize) });
+    onDataChange?.({ viewStack: [...newHistory, next].map(serialize) } as WindowData);
   };
 
   const goBack = () => {
@@ -217,7 +217,7 @@ export default function Explorer({ vfs, initialData, runtimes, recents, onOpenNo
     setHistory(newHistory);
     setView(prev);
     setSelected(prev.selectedId ?? null);
-    onDataChange?.({ viewStack: [...newHistory, prev].map(serialize) });
+    onDataChange?.({ viewStack: [...newHistory, prev].map(serialize) } as WindowData);
   };
 
   const goUp = () => {
@@ -234,7 +234,7 @@ export default function Explorer({ vfs, initialData, runtimes, recents, onOpenNo
     setHistory(newHistory);
     setView(target);
     setSelected(target.selectedId ?? null);
-    onDataChange?.({ viewStack: [...newHistory, target].map(serialize) });
+    onDataChange?.({ viewStack: [...newHistory, target].map(serialize) } as WindowData);
   };
 
   const myDocs = useMemo(() => findNode("desktop-docs", vfs), [vfs]);

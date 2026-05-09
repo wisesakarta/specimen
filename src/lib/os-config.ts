@@ -3,7 +3,76 @@
  * Defines the Virtual File System (VFS) and App Registry.
  */
 
-export type AppType = "SPECIMEN" | "EXPLORER" | "NOTEPAD" | "BROWSER" | "WEBAMP" | "MONACO_EDITOR" | "JSPAINT" | "ABOUT";
+export type AppType = "SPECIMEN" | "EXPLORER" | "NOTEPAD" | "BROWSER" | "WEBAMP" | "MONACO_EDITOR" | "JSPAINT" | "ABOUT" | "TERMINAL";
+
+/**
+ * PHASE 8 — WINDOWSTATE TYPE HARDENING
+ * 
+ * Formalizing the data structures for each application type to eliminate 'any' drift.
+ */
+export interface NotepadData {
+  content: string;
+}
+
+export interface ExplorerData {
+  viewStack: Array<{
+    kind: "my-computer" | "desktop" | "active-sessions" | "recent-items" | "vfs";
+    nodeId?: string;
+    selectedId?: string;
+  }>;
+}
+
+export interface BrowserData {
+  url?: string;
+}
+
+export interface WebampData {
+  skinUrl?: string;
+}
+
+export interface MonacoData {
+  content?: string;
+  language?: string;
+}
+
+export interface JSPaintData {
+  image?: string;
+}
+
+export interface SpecimenData {
+  foundryName?: string;
+  originalUrl?: string;
+  targetUrl?: string;
+  fonts: any[]; // Keep fonts as any[] for now as it's complex
+  downloadResult?: {
+    downloaded: any[];
+    skipped: any[];
+  };
+}
+
+export interface VFSNode {
+  id: string;
+  name: string;
+  type: "file" | "folder";
+  icon: string;
+  appType?: AppType;
+  content?: string; // For text files
+  children?: VFSNode[]; // For folders
+  metadata?: any;
+}
+
+export type WindowData = 
+  | NotepadData 
+  | ExplorerData 
+  | BrowserData 
+  | WebampData 
+  | MonacoData 
+  | JSPaintData 
+  | SpecimenData 
+  | VFSNode
+  | string 
+  | null;
+
 
 /**
  * Sovereign Runtime Registry
@@ -32,259 +101,18 @@ export interface SovereignRegistryEntry {
   defaultHeight: number;
   /** Spatial sovereignty class — determines whether shell or runtime owns positioning. */
   spatial: "full" | "vessel";
+  /** Default icon for procedural spawning */
+  defaultIcon?: string;
 }
 
 export const SOVEREIGN_REGISTRY: Partial<Record<AppType, SovereignRegistryEntry>> = {
-  WEBAMP: { defaultWidth: 275, defaultHeight: 348, spatial: "full" },
-  MONACO_EDITOR: { defaultWidth: 640, defaultHeight: 440, spatial: "vessel" },
-  JSPAINT: { defaultWidth: 780, defaultHeight: 520, spatial: "vessel" },
-  NOTEPAD: { defaultWidth: 400, defaultHeight: 300, spatial: "vessel" },
+  WEBAMP: { defaultWidth: 275, defaultHeight: 348, spatial: "full", defaultIcon: "⚡" },
+  MONACO_EDITOR: { defaultWidth: 640, defaultHeight: 440, spatial: "vessel", defaultIcon: "🗂️" },
+  JSPAINT: { defaultWidth: 780, defaultHeight: 520, spatial: "vessel", defaultIcon: "🎨" },
+  NOTEPAD: { defaultWidth: 400, defaultHeight: 300, spatial: "vessel", defaultIcon: "📝" },
+  TERMINAL: { defaultWidth: 600, defaultHeight: 400, spatial: "vessel", defaultIcon: "⌨️" },
+  BROWSER: { defaultWidth: 800, defaultHeight: 600, spatial: "vessel", defaultIcon: "🌐" },
 };
 
-export interface VFSNode {
-  id: string;
-  name: string;
-  type: "file" | "folder";
-  icon: string;
-  appType?: AppType;
-  content?: string; // For text files
-  children?: VFSNode[]; // For folders
-  metadata?: any;
-}
 
-export const DEFAULT_VFS: VFSNode[] = [
-  {
-    id: "desktop-mycomputer",
-    name: "My Computer",
-    type: "folder",
-    icon: "🖥️",
-    children: [],
-  },
-  {
-    id: "desktop-specimen",
-    name: "Specimen Analyzer",
-    type: "file",
-    icon: "🔍",
-    appType: "SPECIMEN",
-  },
-  {
-    id: "desktop-docs",
-    name: "My Documents",
-    type: "folder",
-    icon: "📁",
-    children: [
-      {
-        id: "doc-foundry-collections",
-        name: "Font Collections",
-        type: "folder",
-        icon: "🔡",
-        children: [
-          {
-            id: "coll-sascha",
-            name: "Sascha Bente",
-            type: "folder",
-            icon: "📁",
-            children: [
-              { id: "font-sb-viadukt", name: "SB Viadukt.zip", type: "file", icon: "📦" },
-              { id: "font-sb-modern", name: "SB Modern.zip", type: "file", icon: "📦" },
-            ]
-          },
-          {
-            id: "coll-monolisa",
-            name: "MonoLisa",
-            type: "folder",
-            icon: "📁",
-            children: [
-              { id: "font-monolisa-plus", name: "MonoLisa Plus.zip", type: "file", icon: "📦" },
-            ]
-          },
-          {
-            id: "coll-abcdinamo",
-            name: "ABC Dinamo",
-            type: "folder",
-            icon: "📁",
-            children: [
-              { id: "font-favorit", name: "Favorit.zip", type: "file", icon: "📦" },
-              { id: "font-monument", name: "Monument Grotesk.zip", type: "file", icon: "📦" },
-            ]
-          }
-        ]
-      },
-      {
-        id: "doc-skins",
-        name: "Skins",
-        type: "folder",
-        icon: "🎨",
-        children: [
-          {
-            id: "skin-deus-ex",
-            name: "Deus Ex Amp.wsz",
-            type: "file",
-            icon: "📦",
-            metadata: { skinUrl: "/assets/skins/Deus_Ex_Amp_by_AJ.wsz" }
-          },
-          {
-            id: "skin-excel",
-            name: "Excel Skin.wsz",
-            type: "file",
-            icon: "📦",
-            metadata: { skinUrl: "/assets/skins/Excel_Skin.wsz" }
-          },
-          {
-            id: "skin-major-tom",
-            name: "Major Tom Remix.wsz",
-            type: "file",
-            icon: "📦",
-            metadata: { skinUrl: "/assets/skins/Major_Tom Remix.wsz" }
-          },
-          {
-            id: "skin-microchip",
-            name: "Microchip 2.wsz",
-            type: "file",
-            icon: "📦",
-            metadata: { skinUrl: "/assets/skins/Microchip_2.wsz" }
-          },
-          {
-            id: "skin-necromech",
-            name: "Necromech.wsz",
-            type: "file",
-            icon: "📦",
-            metadata: { skinUrl: "/assets/skins/Necromech.wsz" }
-          },
-          {
-            id: "skin-nucleo",
-            name: "Nucleo NLog 2G1.wsz",
-            type: "file",
-            icon: "📦",
-            metadata: { skinUrl: "/assets/skins/Nucleo-NLog-2G1.wsz" }
-          },
-          {
-            id: "skin-petrol",
-            name: "Petrol Flange.wsz",
-            type: "file",
-            icon: "📦",
-            metadata: { skinUrl: "/assets/skins/Petrol_Flange.wsz" }
-          },
-          {
-            id: "skin-spilt-milk",
-            name: "Spilt Milk.wsz",
-            type: "file",
-            icon: "📦",
-            metadata: { skinUrl: "/assets/skins/Spilt_Milk.wsz" }
-          },
-          {
-            id: "skin-cube",
-            name: "The Cube v2.wsz",
-            type: "file",
-            icon: "📦",
-            metadata: { skinUrl: "/assets/skins/the_Cube_v2_by_Kuki.wsz" }
-          },
-          {
-            id: "skin-winamp5",
-            name: "Winamp5 Classified v5.5.wsz",
-            type: "file",
-            icon: "📦",
-            metadata: { skinUrl: "/assets/skins/Winamp5_Classified_v5.5.wsz" }
-          },
-          {
-            id: "skin-winamp98",
-            name: "Winamp98 plus IE5.wsz",
-            type: "file",
-            icon: "📦",
-            metadata: { skinUrl: "/assets/skins/Winamp98_plus_IE5.wsz" }
-          }
-        ]
-      },
-    ],
-  },
-  {
-    id: "desktop-browser",
-    name: "Internet Explorer",
-    type: "file",
-    icon: "🌐",
-    appType: "BROWSER",
-  },
-  {
-    id: "desktop-music",
-    name: "Winamp",
-    type: "file",
-    icon: "⚡",
-    appType: "WEBAMP",
-  },
-  {
-    id: "desktop-editor",
-    name: "Monaco Editor",
-    type: "file",
-    icon: "🗂️",
-    appType: "MONACO_EDITOR",
-  },
-  {
-    id: "desktop-notepad",
-    name: "Notepad",
-    type: "file",
-    icon: "📝",
-    appType: "NOTEPAD",
-  },
-  {
-    id: "desktop-about",
-    name: "about.txt",
-    type: "file",
-    icon: "📄",
-    appType: "NOTEPAD",
-    content: `Specimen v2.0
-Technical Standard compliant font extraction system.
 
-Mission: Achieve the perfectness in smallest detail possible.
-Architecture: Otak / Mesin / Bengkel.`,
-  },
-  {
-    id: "desktop-foundries",
-    name: "foundries.txt",
-    type: "file",
-    icon: "📄",
-    appType: "NOTEPAD",
-    content: `SUPPORTED FOUNDRIES:
-- Sascha Bente
-- MonoLisa
-- ABC Dinamo
-- Klim Type Foundry
-- Lineto
-- Pangram Pangram
-- Grilli Type
-- W Type Foundry
-- Superior Type
-- Swiss Typefaces
-- OH no Type Co
-- 205TF
-- A2-Type
-- Co-Type`,
-  },
-  {
-    id: "desktop-tech",
-    name: "tech-stack.txt",
-    type: "file",
-    icon: "📄",
-    appType: "NOTEPAD",
-    content: `TECH STACK:
-- Framework: Next.js 15 (App Router)
-- Language: TypeScript
-- Styling: Tailwind CSS
-- Animation: Framer Motion
-- Desktop Engine: Custom Win95 React Engine
-- Font Extraction: Fonttools (Python) / Browser Intercept`,
-  },
-  {
-    id: "desktop-paint",
-    name: "Paint",
-    type: "file",
-    icon: "🎨",
-    appType: "JSPAINT",
-  },
-  {
-    id: "desktop-trash",
-    name: "Recycle Bin",
-    type: "folder",
-    icon: "🗑️",
-    children: [],
-  },
-];

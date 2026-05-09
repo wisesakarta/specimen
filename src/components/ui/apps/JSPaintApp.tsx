@@ -16,12 +16,16 @@ import type { SovereignRuntimeProps } from "@/runtime/runtime-dispatch";
 export default function JSPaintApp({
   isVisible,
   onFocus,
+  onMaximize,
   onActivityChange,
 }: SovereignRuntimeProps) {
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const lastTitleRef = useRef<string>("");
   const [isRestoring, setIsRestoring] = useState(true);
   const [hasContent, setHasContent] = useState(false);
+
+  const onActivityChangeRef = useRef(onActivityChange);
+  onActivityChangeRef.current = onActivityChange;
 
   // After suspension → resume, trigger a resize event inside the iframe so JS Paint
   // recalculates its canvas area. Without this, the layout may be stale from display:none.
@@ -50,7 +54,7 @@ export default function JSPaintApp({
           const cleanTitle = currentTitle.replace(" - JS Paint", "").trim();
           const isDirty = currentTitle.includes("*");
           
-          onActivityChange?.({
+          onActivityChangeRef.current?.({
             subtitle: cleanTitle || "Untitled",
             dirty: isDirty,
           });
@@ -69,7 +73,7 @@ export default function JSPaintApp({
       clearTimeout(t);
       clearInterval(pollInterval);
     };
-  }, [isVisible, onActivityChange]);
+  }, [isVisible]); // Pure visibility-driven effect initialization
 
   const handleLoad = () => {
     setIsRestoring(false);

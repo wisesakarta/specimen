@@ -3,20 +3,23 @@
 import { useEffect, useRef } from "react";
 import Webamp from "webamp";
 import type { AudioPlaybackState } from "@/lib/runtime";
+import type { WindowData } from "@/lib/os-config";
 
 interface WebampPlayerProps {
   onClose?: () => void;
   onMinimize?: () => void;
+  onMaximize?: () => void;
   onFocus?: () => void;
   onPositionChange?: (pos: { x: number; y: number }) => void;
   onPlaybackChange?: (state: AudioPlaybackState) => void;
   isVisible?: boolean;
-  initialData?: any;
+  initialData?: WindowData;
 }
 
 export default function WebampPlayer({
   onClose,
   onMinimize,
+  onMaximize,
   onFocus,
   onPositionChange,
   onPlaybackChange,
@@ -57,7 +60,7 @@ export default function WebampPlayer({
     let effectCancelled = false;
     if (!webampRef.current || !initialData) return;
     
-    const skinUrl = typeof initialData === "string" ? initialData : initialData.skinUrl;
+    const skinUrl = typeof initialData === "string" ? initialData : (initialData as any)?.skinUrl;
     if (skinUrl) {
       const applySkin = async () => {
         try {
@@ -92,7 +95,7 @@ export default function WebampPlayer({
       ],
       initialSkin: initialData && typeof initialData === "string" 
         ? { url: initialData } 
-        : (initialData?.skinUrl ? { url: initialData.skinUrl } : undefined)
+        : ((initialData as any)?.skinUrl ? { url: (initialData as any).skinUrl } : undefined)
     });
 
     webampRef.current = webamp;

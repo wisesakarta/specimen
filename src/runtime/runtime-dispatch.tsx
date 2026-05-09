@@ -1,8 +1,9 @@
 "use client";
 
 import dynamic from "next/dynamic";
-import type { AppType, VFSNode } from "@/lib/os-config";
+import type { AppType, VFSNode, WindowData } from "@/lib/os-config";
 import type { AudioPlaybackState, RuntimeActivityState } from "@/lib/runtime";
+import type { PersistedRecent } from "@/lib/persistence";
 
 // Hard-linked Managed Citizens
 import Explorer, { type RuntimeSnapshot } from "@/components/ui/apps/Explorer";
@@ -13,6 +14,7 @@ const WebampPlayer = dynamic(() => import("@/components/ui/apps/WebampPlayer"), 
 const MonacoEditorApp = dynamic(() => import("@/components/ui/apps/MonacoEditor"), { ssr: false });
 const JSPaintApp = dynamic(() => import("@/components/ui/apps/JSPaintApp"), { ssr: false });
 const NotepadApp = dynamic(() => import("@/components/ui/apps/Notepad"), { ssr: false });
+const TerminalApp = dynamic(() => import("@/components/ui/apps/Terminal"), { ssr: false });
 
 /**
  * The standard shell-to-runtime contract for Sovereign citizens.
@@ -24,13 +26,24 @@ export interface SovereignRuntimeProps {
   onFocus: () => void;
   onPositionChange: (pos: { x: number; y: number }) => void;
   onActivityChange?: (state: RuntimeActivityState) => void;
-  onDataChange?: (data: unknown) => void;
+  onDataChange?: (data: WindowData) => void;
+  onMaximize: () => void;
+  
+  // Terminal/Introspection Extensions
+  vfs?: VFSNode[];
+  runtimeSnapshots?: RuntimeSnapshot[];
+  onOpenNode?: (node: VFSNode) => void;
+  onOpenApp?: (type: AppType, title?: string, icon?: string, data?: WindowData) => void;
+  onCloseApp?: (id: string) => void;
+  onUpdateVFS?: (updater: (prev: VFSNode[]) => VFSNode[]) => void;
+  runtimeLogs?: string[];
 }
 
 interface SovereignDispatchProps extends SovereignRuntimeProps {
   type: AppType;
-  initialData?: unknown;
+  initialData?: WindowData;
   onPlaybackChange?: (state: AudioPlaybackState) => void;
+  onMaximize: () => void;
 }
 
 /**
@@ -42,12 +55,20 @@ export function DispatchSovereignCitizen({
   isVisible,
   onClose,
   onMinimize,
+  onMaximize,
   onFocus,
   onPositionChange,
   onPlaybackChange,
   onActivityChange,
   onDataChange,
   initialData,
+  vfs,
+  runtimeSnapshots,
+  onOpenNode,
+  onOpenApp,
+  onCloseApp,
+  onUpdateVFS,
+  runtimeLogs,
 }: SovereignDispatchProps) {
   switch (type) {
     case "WEBAMP":
@@ -56,6 +77,7 @@ export function DispatchSovereignCitizen({
           isVisible={isVisible}
           onClose={onClose}
           onMinimize={onMinimize}
+          onMaximize={onMaximize}
           onFocus={onFocus}
           onPositionChange={onPositionChange}
           onPlaybackChange={onPlaybackChange}
@@ -69,6 +91,7 @@ export function DispatchSovereignCitizen({
           isVisible={isVisible}
           onClose={onClose}
           onMinimize={onMinimize}
+          onMaximize={onMaximize}
           onFocus={onFocus}
           onPositionChange={onPositionChange}
           onActivityChange={onActivityChange}
@@ -83,6 +106,7 @@ export function DispatchSovereignCitizen({
           isVisible={isVisible}
           onClose={onClose}
           onMinimize={onMinimize}
+          onMaximize={onMaximize}
           onFocus={onFocus}
           onPositionChange={onPositionChange}
           onActivityChange={onActivityChange}
@@ -96,11 +120,46 @@ export function DispatchSovereignCitizen({
           isVisible={isVisible}
           onClose={onClose}
           onMinimize={onMinimize}
+          onMaximize={onMaximize}
           onFocus={onFocus}
           onPositionChange={onPositionChange}
           onActivityChange={onActivityChange}
           onDataChange={onDataChange}
           initialData={initialData}
+        />
+      );
+
+    case "TERMINAL":
+      return (
+        <TerminalApp
+          isVisible={isVisible}
+          onClose={onClose}
+          onMinimize={onMinimize}
+          onMaximize={onMaximize}
+          onFocus={onFocus}
+          onPositionChange={onPositionChange}
+          onActivityChange={onActivityChange}
+          onDataChange={onDataChange}
+          vfs={vfs}
+          runtimeSnapshots={runtimeSnapshots}
+          onOpenNode={onOpenNode}
+          onOpenApp={onOpenApp}
+          onCloseApp={onCloseApp}
+          onUpdateVFS={onUpdateVFS}
+          runtimeLogs={runtimeLogs}
+        />
+      );
+
+    case "BROWSER":
+      return (
+        <WebBrowser 
+          isVisible={isVisible}
+          onClose={onClose}
+          onMinimize={onMinimize}
+          onMaximize={onMaximize}
+          onFocus={onFocus}
+          onPositionChange={onPositionChange}
+          onActivityChange={onActivityChange} 
         />
       );
 
@@ -112,13 +171,14 @@ export function DispatchSovereignCitizen({
 interface ManagedDispatchProps {
   type: AppType;
   windowId: string;
-  windowData?: unknown;
+  windowData?: WindowData;
   vfs: VFSNode[];
-  recents: any;
+  recents: PersistedRecent[];
   runtimeSnapshots: RuntimeSnapshot[];
   onOpenNode: (node: VFSNode) => void;
   onFocusWindow: (id: string) => void;
-  onDataChange: (data: unknown) => void;
+  onDataChange: (data: WindowData) => void;
+  onActivityChange?: (state: RuntimeActivityState) => void;
 }
 
 /**
@@ -133,14 +193,15 @@ export function DispatchManagedCitizen({
   runtimeSnapshots,
   onOpenNode,
   onFocusWindow,
-  onDataChange
+  onDataChange,
+  onActivityChange
 }: ManagedDispatchProps) {
   switch (type) {
     case "EXPLORER":
       return (
         <Explorer
           vfs={vfs}
-          initialData={windowData}
+          initialData={windowData as WindowData}
           runtimes={runtimeSnapshots}
           recents={recents}
           onOpenNode={onOpenNode}
@@ -148,9 +209,6 @@ export function DispatchManagedCitizen({
           onDataChange={onDataChange}
         />
       );
-
-    case "BROWSER":
-      return <WebBrowser />;
 
     default:
       return null;
@@ -175,29 +233,11 @@ export function extractRuntimeTextPayload(data: unknown): string {
  */
 export function resolveRuntimeSubtitle(w: {
   type: AppType;
-  data?: any;
   playback?: AudioPlaybackState;
   activity?: RuntimeActivityState;
 }): string | undefined {
-  if (w.type === "MONACO_EDITOR") {
-    const content = (w.data as { content?: string } | null)?.content;
-    if (!content) return undefined;
-    const firstLine = content.split("\n").find(
-      (l) => l.trim() && !l.trim().startsWith("//") && !l.trim().startsWith("#") && !l.trim().startsWith("/*")
-    );
-    return firstLine?.trim().slice(0, 40) || undefined;
-  }
   if (w.type === "WEBAMP") {
     return w.playback?.track?.title ?? undefined;
   }
-  if (w.type === "NOTEPAD") {
-    const content = extractRuntimeTextPayload(w.data);
-    if (!content) return undefined;
-    const firstLine = content.split("\n").find((l) => l.trim());
-    return firstLine?.trim().slice(0, 40) || undefined;
-  }
-  if (w.type === "JSPAINT") {
-    return w.activity?.subtitle ?? undefined;
-  }
-  return undefined;
+  return w.activity?.subtitle ?? undefined;
 }

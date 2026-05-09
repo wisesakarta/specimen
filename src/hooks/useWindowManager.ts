@@ -1,6 +1,6 @@
 import { useState, useCallback } from "react";
 import type { WindowState } from "@/components/ui/Win95Desktop";
-import { AppType, SOVEREIGN_REGISTRY } from "@/lib/os-config";
+import { AppType, SOVEREIGN_REGISTRY, WindowData } from "@/lib/os-config";
 import type { PersistedRecent } from "@/lib/persistence";
 
 export const SPECIMEN_ID = "specimen";
@@ -34,7 +34,7 @@ export function useWindowManager(initialState: {
     });
   }, []);
 
-  const updateRecents = useCallback((id: string, type: AppType, title: string, icon: string, data?: any) => {
+  const updateRecents = useCallback((id: string, type: AppType, title: string, icon: string, data?: WindowData) => {
     if (type === "EXPLORER" || type === "SPECIMEN") return; // Don't track shell apps as recents
     setRecents((prev) => {
       const filtered = prev.filter((r) => r.id !== id);
@@ -50,7 +50,7 @@ export function useWindowManager(initialState: {
     });
   }, []);
 
-  const openWindow = useCallback((id: string, type: AppType, title: string, icon: string, data?: any) => {
+  const openWindow = useCallback((id: string, type: AppType, title: string, icon: string, data?: WindowData) => {
     updateRecents(id, type, title, icon, data);
     
     setWindows((prevWindows) => {
@@ -148,7 +148,22 @@ export function useWindowManager(initialState: {
   }, [windows, activeWindowId, focusWindow, minimizeWindow]);
 
   const updateWindowState = useCallback((id: string, patch: Partial<WindowState>) => {
-    setWindows((prev) => prev.map((w) => (w.id === id ? { ...w, ...patch } : w)));
+    setWindows((prev) => {
+      const win = prev.find(w => w.id === id);
+      if (!win) return prev;
+      
+      const hasChange = Object.keys(patch).some(key => {
+        const k = key as keyof WindowState;
+        if (k === 'activity' && patch.activity) {
+          return patch.activity.dirty !== win.activity?.dirty || 
+                 patch.activity.subtitle !== win.activity?.subtitle;
+        }
+        return patch[k] !== win[k];
+      });
+
+      if (!hasChange) return prev;
+      return prev.map((w) => (w.id === id ? { ...w, ...patch } : w));
+    });
   }, []);
 
   return {

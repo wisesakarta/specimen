@@ -4,6 +4,7 @@ import { motion, type Variants, useDragControls } from "framer-motion";
 import { cn } from "@/lib/style-composer";
 import { useRef, useState } from "react";
 import Win95Icon from "./Win95Icon";
+import { Win95MenuBar } from "./Win95Menu";
 
 interface Win95WindowProps {
   title: string;
@@ -324,22 +325,7 @@ export default function Win95Window({
 
 /* ─── Sub-components ─── */
 
-export function Win95MenuBar({ children }: { children: React.ReactNode }) {
-  return (
-    <div
-      className="flex items-center px-1 border-b select-none"
-      style={{
-        height: "20px",
-        background: "var(--win-face)",
-        borderBottomColor: "var(--win-shadow)",
-        fontFamily: "var(--font-shell)",
-        fontSize: "var(--win-font-size)",
-      }}
-    >
-      {children}
-    </div>
-  );
-}
+export { Win95MenuBar };
 
 export function Win95MenuItem({ children, active }: { children: React.ReactNode; active?: boolean }) {
   return (
@@ -375,7 +361,7 @@ export function Win95StatusBar({ children }: { children: React.ReactNode }) {
 export function Win95StatusPanel({ children, className, style }: { children: React.ReactNode; className?: string; style?: React.CSSProperties }) {
   return (
     <div
-      className={cn("px-2 flex items-center", className)}
+      className={cn("px-2 flex items-center overflow-hidden whitespace-nowrap", className)}
       style={{
         boxShadow: "var(--bevel-sunken)",
         height: "18px",
@@ -384,7 +370,7 @@ export function Win95StatusPanel({ children, className, style }: { children: Rea
         ...style,
       }}
     >
-      {children}
+      <span className="truncate w-full block">{children}</span>
     </div>
   );
 }

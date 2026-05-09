@@ -52,27 +52,38 @@ const getPathHead = (pathname: string): string => {
   return (head || "").toLowerCase();
 };
 
-const fetchCatalogSlugs = async (origin: string): Promise<Set<string>> => {
+const fetchCatalogHtml = async (origin: string): Promise<string | undefined> => {
   try {
     const res = await fetch(`${origin}/typefaces`, {
       headers: { "User-Agent": BROWSER_UA }
     });
-    if (!res.ok) return new Set();
-    const html = await res.text();
-    const slugs = new Set<string>();
-    const patterns = [/"slug":"([^"]+)"/g, /\\"slug\\":\\"([^\\"]+)\\"/g];
-    for (const pattern of patterns) {
-      for (const match of html.matchAll(pattern)) {
-        const slug = String(match[1] || "").trim().toLowerCase();
-        if (!slug || slug.includes("/")) continue;
-        if (RESERVED_ROOT_PATHS.has(slug)) continue;
-        slugs.add(slug);
-      }
-    }
-    return slugs;
+    if (!res.ok) return undefined;
+    return await res.text();
   } catch {
-    return new Set();
+    return undefined;
   }
+};
+
+const extractCatalogSlugsFromHtml = (html: string): Set<string> => {
+  const slugs = new Set<string>();
+  const patterns = [/"slug":"([^"]+)"/g, /\\"slug\\":\\"([^\\"]+)\\"/g];
+
+  for (const pattern of patterns) {
+    for (const match of html.matchAll(pattern)) {
+      const slug = String(match[1] || "").trim().toLowerCase();
+      if (!slug || slug.includes("/")) continue;
+      if (RESERVED_ROOT_PATHS.has(slug)) continue;
+      slugs.add(slug);
+    }
+  }
+
+  return slugs;
+};
+
+const fetchCatalogSlugs = async (origin: string): Promise<Set<string>> => {
+  const html = await fetchCatalogHtml(origin);
+  if (!html) return new Set();
+  return extractCatalogSlugsFromHtml(html);
 };
 
 const isReachable = async (url: string): Promise<boolean> => {
@@ -118,6 +129,7 @@ const extractCollectionFamilySlugs = (html: string, catalogSlugs: Set<string>, c
 type Resolved205Target = {
   targetUrl: string;
   familyName: string;
+  targetSlug?: string;
   collectionSlug?: string;
   collectionFamilySlugs?: string[];
 };
@@ -128,6 +140,141 @@ type TF205StyleProfileEntry = {
   styleName: string;
   weight: string;
   isItalic: boolean;
+};
+
+const infer205WeightFromStyleName = (styleName: string): string => {
+  const token = styleName
+    .toLowerCase()
+    .replace(/\b(italic|oblique)\b/g, " ")
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
+
+  if (!token) return "400";
+  if (/\b(hairline|thin)\b/.test(token)) return "100";
+  if (/\b(extra\s*light|ultra\s*light)\b/.test(token)) return "200";
+  if (/\blight\b/.test(token)) return "300";
+  if (/\bbook\b/.test(token)) return "450";
+  if (/\b(medium)\b/.test(token)) return "500";
+  if (/\b(semi\s*bold|demi\s*bold)\b/.test(token)) return "600";
+  if (/\b(extra\s*bold|ultra\s*bold)\b/.test(token)) return "800";
+  if (/\b(black|heavy|ultra)\b/.test(token)) return "900";
+  if (/\b(plakat|bold)\b/.test(token)) return "700";
+  if (/\b(regular|roman|screen|display)\b/.test(token)) return "400";
+  return "400";
+};
+
+const normalize205WeightValue = (weightValue: unknown, styleName: string): string => {
+  if (typeof weightValue === "number" && Number.isFinite(weightValue)) {
+    return String(Math.max(1, Math.floor(weightValue)));
+  }
+
+  const raw = String(weightValue || "").trim();
+  if (!raw) return infer205WeightFromStyleName(styleName);
+  if (/^\d+$/.test(raw)) return raw;
+
+  return infer205WeightFromStyleName(raw || styleName);
+};
+
+const extractEscapedArrayPayload = (source: string, arrayOpenIndex: number): string | undefined => {
+  let depth = 0;
+  for (let index = arrayOpenIndex; index < source.length; index += 1) {
+    const token = source[index];
+    if (token === "[") depth += 1;
+    if (token === "]") {
+      depth -= 1;
+      if (depth === 0) {
+        return source.slice(arrayOpenIndex + 1, index);
+      }
+    }
+  }
+  return undefined;
+};
+
+const extractCatalogFamilyDisplayName = (catalogHtml: string, familySlug: string, fallbackFamilyName: string): string => {
+  const slugMarker = `\\"slug\\":\\"${familySlug}\\"`;
+  const slugIndex = catalogHtml.toLowerCase().indexOf(slugMarker.toLowerCase());
+  if (slugIndex < 0) return fallbackFamilyName;
+
+  const nameToken = '\\"name\\":\\"';
+  const nameIndex = catalogHtml.lastIndexOf(nameToken, slugIndex);
+  if (nameIndex < 0) return fallbackFamilyName;
+
+  const valueStart = nameIndex + nameToken.length;
+  const valueEnd = catalogHtml.indexOf('\\"', valueStart);
+  if (valueEnd <= valueStart) return fallbackFamilyName;
+
+  const rawName = catalogHtml.slice(valueStart, valueEnd).trim();
+  return rawName || fallbackFamilyName;
+};
+
+const extractCatalogFamilyStylesPayload = (catalogHtml: string, familySlug: string): string | undefined => {
+  const slugMarker = `\\"slug\\":\\"${familySlug}\\"`;
+  const slugIndex = catalogHtml.toLowerCase().indexOf(slugMarker.toLowerCase());
+  if (slugIndex < 0) return undefined;
+
+  const stylesToken = '\\"styles\\":[';
+  const stylesIndex = catalogHtml.indexOf(stylesToken, slugIndex);
+  if (stylesIndex < 0) return undefined;
+
+  const arrayOpenIndex = stylesIndex + stylesToken.length - 1;
+  return extractEscapedArrayPayload(catalogHtml, arrayOpenIndex);
+};
+
+const parse205CatalogStyleProfileEntries = (stylesPayload: string): TF205StyleProfileEntry[] => {
+  const entries = new Map<string, TF205StyleProfileEntry>();
+  const pattern =
+    /\{\\"id\\":(\d+),\\"name\\":\\"([^\\"]+)\\",\\"postscriptName\\":\\"([^\\"]+)\\"[^{}]*?\\"fontFile\\":\\"([^\\"]+?\.(?:woff2?|ttf|otf))\\"[^{}]*?\}/g;
+
+  for (const match of stylesPayload.matchAll(pattern)) {
+    const styleName = String(match[2] || "").trim();
+    const postscriptName = String(match[3] || "").trim();
+    const fontFile = String(match[4] || "").trim();
+    if (!fontFile || !postscriptName) continue;
+    if (entries.has(fontFile)) continue;
+
+    entries.set(fontFile, {
+      fontFile,
+      postscriptName,
+      styleName: styleName || "Regular",
+      weight: normalize205WeightValue(undefined, styleName || "Regular"),
+      isItalic: /italic|oblique/i.test(styleName)
+    });
+  }
+
+  return Array.from(entries.values());
+};
+
+const build205TargetProfileFromCatalog = (params: {
+  catalogHtml: string;
+  familySlug: string;
+  fallbackFamilyName: string;
+}): Record<string, unknown> | undefined => {
+  const stylesPayload = extractCatalogFamilyStylesPayload(params.catalogHtml, params.familySlug);
+  if (!stylesPayload) return undefined;
+
+  const entries = parse205CatalogStyleProfileEntries(stylesPayload);
+  if (entries.length === 0) return undefined;
+
+  const familyName = extractCatalogFamilyDisplayName(
+    params.catalogHtml,
+    params.familySlug,
+    params.fallbackFamilyName
+  );
+  const expectedStyles = entries.map((entry) => entry.styleName).filter(Boolean);
+  const expectedPostscriptNames = entries.map((entry) => entry.postscriptName).filter(Boolean);
+  const familyPostscript = expectedPostscriptNames[0]?.split("-")[0] || undefined;
+
+  return {
+    profileId: `205tf-${params.familySlug}-catalog`,
+    source: "205tf-typefaces-catalog",
+    family: familyName,
+    familyDisplay: familyName,
+    familyPostscript,
+    targetSlug: params.familySlug,
+    expectedStyles,
+    expectedPostscriptNames,
+    styleMap: entries
+  };
 };
 
 const parse205StyleProfileEntries = (payload: string): TF205StyleProfileEntry[] => {
@@ -147,7 +294,7 @@ const parse205StyleProfileEntries = (payload: string): TF205StyleProfileEntry[] 
         fontFile,
         postscriptName,
         styleName,
-        weight,
+        weight: normalize205WeightValue(weight, styleName),
         isItalic
       });
     }
@@ -289,7 +436,7 @@ const buildDirect205FontsFromProfile = (params: {
 
     const postscriptName = String((row as any).postscriptName || "").trim();
     const styleName = String((row as any).styleName || "").trim();
-    const weightValue = String((row as any).weight || "").trim() || "Regular";
+    const weightValue = normalize205WeightValue((row as any).weight, styleName);
     const isItalic = Boolean((row as any).isItalic) || /italic|oblique/i.test(styleName);
     const family = toReadablePostscriptFamily(postscriptName, fallbackFamily);
     const fullName =
@@ -346,8 +493,9 @@ const resolveTargetUrl = async (rawUrl: string): Promise<Resolved205Target> => {
     if (catalogSlugs.has(slug)) {
       const mapped = `${origin}/${slug}`;
       if (await isReachable(mapped)) {
-        return { targetUrl: mapped, familyName: toReadableFamily(slug) };
+        return { targetUrl: mapped, familyName: toReadableFamily(slug), targetSlug: slug };
       }
+      return { targetUrl: `${origin}/typefaces`, familyName: toReadableFamily(slug), targetSlug: slug };
     }
     return { targetUrl: `${origin}/typefaces`, familyName: "205TF Catalog" };
   }
@@ -418,7 +566,10 @@ const resolveTargetUrl = async (rawUrl: string): Promise<Resolved205Target> => {
     const candidate = `${origin}/${head}`;
     if (catalogSlugs.size === 0 || catalogSlugs.has(head)) {
       if (await isReachable(candidate)) {
-        return { targetUrl: candidate, familyName: toReadableFamily(head) };
+        return { targetUrl: candidate, familyName: toReadableFamily(head), targetSlug: head };
+      }
+      if (catalogSlugs.has(head)) {
+        return { targetUrl: `${origin}/typefaces`, familyName: toReadableFamily(head), targetSlug: head };
       }
     }
   }
@@ -526,23 +677,53 @@ export const TF205Scraper: Scraper = {
     const resolved = await resolveTargetUrl(url);
     const { targetUrl, familyName } = resolved;
     const origin = new URL(targetUrl).origin;
+    const targetSlug = resolved.targetSlug || resolved.collectionSlug;
+    let catalogHtml: string | undefined;
+    const loadCatalogHtml = async (): Promise<string | undefined> => {
+      if (catalogHtml) return catalogHtml;
+      catalogHtml = await fetchCatalogHtml(origin);
+      return catalogHtml;
+    };
     const collectionFamilySlugs = Array.isArray(resolved.collectionFamilySlugs)
       ? resolved.collectionFamilySlugs
       : [];
     const collectionFamilyUrls = collectionFamilySlugs.map((slug) => `${origin}/${slug}`);
     const collectionProfiles: Array<Record<string, unknown>> = [];
     for (const slug of collectionFamilySlugs) {
+      let familyProfile: Record<string, unknown> | undefined;
       try {
-        const familyProfile = await fetch205TargetProfile(`${origin}/${slug}`, toReadableFamily(slug), slug);
-        if (familyProfile) collectionProfiles.push(familyProfile);
+        familyProfile = await fetch205TargetProfile(`${origin}/${slug}`, toReadableFamily(slug), slug);
       } catch {
         // keep best-effort flow for unstable collection pages
       }
+      if (!familyProfile) {
+        const html = await loadCatalogHtml();
+        if (html) {
+          familyProfile = build205TargetProfileFromCatalog({
+            catalogHtml: html,
+            familySlug: slug,
+            fallbackFamilyName: toReadableFamily(slug)
+          });
+        }
+      }
+      if (familyProfile) collectionProfiles.push(familyProfile);
     }
 
-    const targetProfile =
+    let targetProfile =
       merge205TargetProfiles(collectionProfiles, familyName, resolved.collectionSlug) ||
-      (await fetch205TargetProfile(targetUrl, familyName, resolved.collectionSlug));
+      (await fetch205TargetProfile(targetUrl, familyName, targetSlug));
+
+    if (!targetProfile && targetSlug) {
+      const html = await loadCatalogHtml();
+      if (html) {
+        targetProfile = build205TargetProfileFromCatalog({
+          catalogHtml: html,
+          familySlug: targetSlug,
+          fallbackFamilyName: familyName
+        });
+      }
+    }
+
     const targetProfileStyles = Array.isArray(targetProfile?.styleMap) ? targetProfile.styleMap.length : 0;
     const expectedCount =
       targetProfileStyles > 0
@@ -551,14 +732,14 @@ export const TF205Scraper: Scraper = {
       collectionFamilySlugs.length > 0
         ? collectionFamilySlugs.length * 16
         : undefined;
-    const provocationToken = resolved.collectionSlug || familyName;
+    const provocationToken = targetSlug || familyName;
     const directFonts =
       targetProfile && typeof targetProfile === "object"
         ? buildDirect205FontsFromProfile({
             targetProfile,
             fallbackFamily: familyName,
             targetUrl,
-            collectionSlug: resolved.collectionSlug,
+            collectionSlug: resolved.collectionSlug || targetSlug,
             collectionFamilySlugs,
             collectionFamilyUrls
           })
@@ -579,7 +760,8 @@ export const TF205Scraper: Scraper = {
                 pageUrl: targetUrl,
                 foundry: "205TF",
                 family: familyName,
-                collection: resolved.collectionSlug,
+                collection: resolved.collectionSlug || targetSlug,
+                targetSlug,
                 collectionFamilies: collectionFamilySlugs,
                 collectionFamilyUrls,
                 ...(targetProfile ? { targetProfile } : {})

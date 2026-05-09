@@ -1,8 +1,10 @@
 import { useState, useRef, useEffect, useCallback } from "react";
-import type { SovereignRuntimeProps } from "@/runtime/runtime-dispatch";
+import { SovereignRuntimeProps, extractRuntimeTextPayload } from "@/runtime/runtime-dispatch";
 import { cn } from "@/lib/style-composer";
 import NotepadFindDialog from "./NotepadFindDialog";
 import Win95Icon from "../../Win95Icon";
+import { Win95MenuBar, Win95MenuDropdown, Win95MenuAction, Win95MenuSeparator } from "../../Win95Menu";
+import type { WindowData } from "@/lib/os-config";
 
 /**
  * PHASE 21 — TOTAL OPERATIONAL LEGITIMACY: NOTEPAD.EXE
@@ -12,7 +14,7 @@ import Win95Icon from "../../Win95Icon";
  */
 
 export interface NotepadProps extends SovereignRuntimeProps {
-  initialData?: any;
+  initialData?: WindowData;
 }
 
 type MenuKey = "file" | "edit" | "search" | "help" | null;
@@ -22,15 +24,14 @@ export default function Notepad({
   onDataChange,
   onActivityChange,
   onFocus,
+  onMaximize,
   isVisible,
   onClose,
   onMinimize,
   onPositionChange
 }: NotepadProps) {
-  const resolveContent = (data: any): string => {
-    if (typeof data === "string") return data;
-    const content = (data as Record<string, unknown> | null)?.content;
-    return typeof content === "string" ? content : "";
+  const resolveContent = (data: WindowData | undefined): string => {
+    return extractRuntimeTextPayload(data);
   };
 
   const [content, setContent] = useState(resolveContent(initialData));
@@ -61,6 +62,21 @@ export default function Notepad({
     }
   }, [initialData]);
 
+  const onActivityChangeRef = useRef(onActivityChange);
+  onActivityChangeRef.current = onActivityChange;
+
+  // Centralized Activity State — Sovereign Subtitle & Dirty derivation
+  useEffect(() => {
+    const isDirty = content !== initialContentRef.current;
+    const firstLine = content.split("\n").find(l => l.trim());
+    const subtitle = firstLine?.trim().slice(0, 40) || undefined;
+    
+    onActivityChangeRef.current?.({ 
+      dirty: isDirty, 
+      subtitle 
+    });
+  }, [content]); // Pure content-driven emission
+
   const pushToHistory = (newContent: string) => {
     const newHistory = history.slice(0, historyIndex + 1);
     if (newHistory[newHistory.length - 1] === newContent) return;
@@ -77,7 +93,6 @@ export default function Notepad({
       const prevContent = history[historyIndex - 1];
       setContent(prevContent);
       setHistoryIndex(historyIndex - 1);
-      onActivityChange?.({ dirty: prevContent !== initialContentRef.current });
     }
   };
 
@@ -86,20 +101,16 @@ export default function Notepad({
     
     onDataChange?.({ content });
     initialContentRef.current = content;
-    onActivityChange?.({ dirty: false });
 
     setIsSaving(true);
     if (statusTimeoutRef.current) clearTimeout(statusTimeoutRef.current);
     statusTimeoutRef.current = setTimeout(() => setIsSaving(false), 1500);
-  }, [content, onDataChange, onActivityChange]);
+  }, [content, onDataChange]);
 
   const handleChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     const newContent = e.target.value;
     setContent(newContent);
     
-    const isDirty = newContent !== initialContentRef.current;
-    onActivityChange?.({ dirty: isDirty });
-
     // Background sync
     if (debounceRef.current) clearTimeout(debounceRef.current);
     debounceRef.current = setTimeout(() => {
@@ -194,139 +205,93 @@ export default function Notepad({
   return (
     <div className="flex flex-col h-full bg-white relative" onMouseDown={() => { onFocus(); closeMenus(); }}>
       {/* Menu Bar */}
-      <div 
-        className="flex bg-[var(--win-face)] border-b border-[var(--win-shadow)] px-1 select-none h-5 items-center z-50"
-        onMouseDown={(e) => e.stopPropagation()}
-      >
-        <div className="flex gap-0 h-full">
-          {/* File Menu */}
-          <div className="relative h-full flex items-center">
-            <button 
-              className={cn(
-                "px-2 h-full flex items-center text-[11px] leading-none focus:outline-none cursor-default",
-                activeMenu === "file" ? "bg-[var(--win-select-bg)] text-white" : "hover:bg-black/5"
-              )}
-              onClick={(e) => { e.stopPropagation(); handleMenuClick("file"); }}
-              onMouseEnter={() => handleMenuHover("file")}
-            >
-              <span className="underline">F</span>ile
-            </button>
-            {activeMenu === "file" && (
-              <div className="absolute left-0 top-full flex flex-col bg-[var(--win-face)] shadow-[2px_2px_0_rgba(0,0,0,0.3)] border border-[var(--win-dk-shadow)] z-50 min-w-[150px] py-0.5">
-                <button className="menu-item" onClick={(e) => { e.stopPropagation(); setContent(""); onActivityChange?.({ dirty: true }); closeMenus(); }}>New</button>
-                <button className="menu-item opacity-40">Open...</button>
-                <button className="menu-item flex justify-between gap-8" onClick={(e) => { e.stopPropagation(); handleSave(); closeMenus(); }}>
-                  <span><span className="underline">S</span>ave</span>
-                  <span className="opacity-60">Ctrl+S</span>
-                </button>
-                <button className="menu-item opacity-40">Save As...</button>
-                <div className="h-[1px] bg-[var(--win-shadow)] my-0.5 mx-1 shadow-[0_1px_0_white]" />
-                <button className="menu-item opacity-40">Page Setup...</button>
-                <button className="menu-item opacity-40">Print...</button>
-                <div className="h-[1px] bg-[var(--win-shadow)] my-0.5 mx-1 shadow-[0_1px_0_white]" />
-                <button className="menu-item" onClick={(e) => { e.stopPropagation(); window.close(); }}>E<span className="underline">x</span>it</button>
-              </div>
-            )}
-          </div>
+      <Win95MenuBar>
+        <Win95MenuDropdown 
+          label={<span><span className="underline">F</span>ile</span>}
+          isOpen={activeMenu === "file"}
+          onOpen={() => handleMenuClick("file")}
+          onHover={() => handleMenuHover("file")}
+        >
+          <Win95MenuAction label="New" onClick={() => { setContent(""); onActivityChange?.({ dirty: true }); closeMenus(); }} />
+          <Win95MenuAction label="Open..." disabled />
+          <Win95MenuAction 
+            label={<span><span className="underline">S</span>ave</span>} 
+            shortcut="Ctrl+S" 
+            onClick={() => { handleSave(); closeMenus(); }} 
+          />
+          <Win95MenuAction label="Save As..." disabled />
+          <Win95MenuSeparator />
+          <Win95MenuAction label="Page Setup..." disabled />
+          <Win95MenuAction label="Print..." disabled />
+          <Win95MenuSeparator />
+          <Win95MenuAction label={<span>E<span className="underline">x</span>it</span>} onClick={() => window.close()} />
+        </Win95MenuDropdown>
 
-          {/* Edit Menu */}
-          <div className="relative h-full flex items-center">
-            <button 
-              className={cn(
-                "px-2 h-full flex items-center text-[11px] leading-none focus:outline-none cursor-default",
-                activeMenu === "edit" ? "bg-[var(--win-select-bg)] text-white" : "hover:bg-black/5"
-              )}
-              onClick={(e) => { e.stopPropagation(); handleMenuClick("edit"); }}
-              onMouseEnter={() => handleMenuHover("edit")}
-            >
-              <span className="underline">E</span>dit
-            </button>
-            {activeMenu === "edit" && (
-              <div className="absolute left-0 top-full flex flex-col bg-[var(--win-face)] shadow-[2px_2px_0_rgba(0,0,0,0.3)] border border-[var(--win-dk-shadow)] z-50 min-w-[170px] py-0.5">
-                <button className="menu-item flex justify-between gap-8" disabled={historyIndex === 0} onClick={(e) => { e.stopPropagation(); handleUndo(); closeMenus(); }}>
-                  <span>Undo</span>
-                  <span className="opacity-60">Ctrl+Z</span>
-                </button>
-                <div className="h-[1px] bg-[var(--win-shadow)] my-0.5 mx-1 shadow-[0_1px_0_white]" />
-                <button className="menu-item flex justify-between opacity-40">
-                  <span>Cut</span>
-                  <span className="opacity-60">Ctrl+X</span>
-                </button>
-                <button className="menu-item flex justify-between gap-8 opacity-40">
-                  <span>Copy</span>
-                  <span className="opacity-60">Ctrl+C</span>
-                </button>
-                <button className="menu-item flex justify-between gap-8 opacity-40">
-                  <span>Paste</span>
-                  <span className="opacity-60">Ctrl+V</span>
-                </button>
-                <button className="menu-item opacity-40">Delete</button>
-                <div className="h-[1px] bg-[var(--win-shadow)] my-0.5 mx-1 shadow-[0_1px_0_white]" />
-                <button className="menu-item flex justify-between gap-8" onClick={(e) => { e.stopPropagation(); textareaRef.current?.select(); closeMenus(); }}>
-                  <span>Select All</span>
-                  <span className="opacity-60">Ctrl+A</span>
-                </button>
-                <button className="menu-item flex justify-between gap-8" onClick={(e) => { e.stopPropagation(); insertTimeDate(); closeMenus(); }}>
-                  <span>Time/Date</span>
-                  <span className="opacity-60">F5</span>
-                </button>
-                <div className="h-[1px] bg-[var(--win-shadow)] my-0.5 mx-1 shadow-[0_1px_0_white]" />
-                <button className="menu-item flex justify-between" onClick={(e) => { e.stopPropagation(); setWordWrap(!wordWrap); closeMenus(); }}>
-                  <span>Word Wrap</span>
-                  {wordWrap && <span className="ml-2">✓</span>}
-                </button>
-              </div>
-            )}
-          </div>
+        <Win95MenuDropdown 
+          label={<span><span className="underline">E</span>dit</span>}
+          isOpen={activeMenu === "edit"}
+          onOpen={() => handleMenuClick("edit")}
+          onHover={() => handleMenuHover("edit")}
+        >
+          <Win95MenuAction 
+            label="Undo" 
+            shortcut="Ctrl+Z" 
+            disabled={historyIndex === 0} 
+            onClick={() => { handleUndo(); closeMenus(); }} 
+          />
+          <Win95MenuSeparator />
+          <Win95MenuAction label="Cut" shortcut="Ctrl+X" disabled />
+          <Win95MenuAction label="Copy" shortcut="Ctrl+C" disabled />
+          <Win95MenuAction label="Paste" shortcut="Ctrl+V" disabled />
+          <Win95MenuAction label="Delete" disabled />
+          <Win95MenuSeparator />
+          <Win95MenuAction 
+            label="Select All" 
+            shortcut="Ctrl+A" 
+            onClick={() => { textareaRef.current?.select(); closeMenus(); }} 
+          />
+          <Win95MenuAction 
+            label="Time/Date" 
+            shortcut="F5" 
+            onClick={() => { insertTimeDate(); closeMenus(); }} 
+          />
+          <Win95MenuSeparator />
+          <Win95MenuAction 
+            label="Word Wrap" 
+            checked={wordWrap} 
+            onClick={() => { setWordWrap(!wordWrap); closeMenus(); }} 
+          />
+        </Win95MenuDropdown>
 
-          {/* Search Menu */}
-          <div className="relative h-full flex items-center">
-            <button 
-              className={cn(
-                "px-2 h-full flex items-center text-[11px] leading-none focus:outline-none cursor-default",
-                activeMenu === "search" ? "bg-[var(--win-select-bg)] text-white" : "hover:bg-black/5"
-              )}
-              onClick={(e) => { e.stopPropagation(); handleMenuClick("search"); }}
-              onMouseEnter={() => handleMenuHover("search")}
-            >
-              <span className="underline">S</span>earch
-            </button>
-            {activeMenu === "search" && (
-              <div className="absolute left-0 top-full flex flex-col bg-[var(--win-face)] shadow-[2px_2px_0_rgba(0,0,0,0.3)] border border-[var(--win-dk-shadow)] z-50 min-w-[150px] py-0.5">
-                <button className="menu-item flex justify-between gap-8" onClick={(e) => { e.stopPropagation(); setIsFindOpen(true); closeMenus(); }}>
-                  <span>Find...</span>
-                  <span className="opacity-60">Ctrl+F</span>
-                </button>
-                <button className="menu-item flex justify-between gap-8" onClick={(e) => { e.stopPropagation(); findNext(searchQuery, "down", false); closeMenus(); }}>
-                  <span>Find Next</span>
-                  <span className="opacity-60">F3</span>
-                </button>
-              </div>
-            )}
-          </div>
+        <Win95MenuDropdown 
+          label={<span><span className="underline">S</span>earch</span>}
+          isOpen={activeMenu === "search"}
+          onOpen={() => handleMenuClick("search")}
+          onHover={() => handleMenuHover("search")}
+        >
+          <Win95MenuAction 
+            label="Find..." 
+            shortcut="Ctrl+F" 
+            onClick={() => { setIsFindOpen(true); closeMenus(); }} 
+          />
+          <Win95MenuAction 
+            label="Find Next" 
+            shortcut="F3" 
+            onClick={() => { findNext(searchQuery, "down", false); closeMenus(); }} 
+          />
+        </Win95MenuDropdown>
 
-          {/* Help Menu */}
-          <div className="relative h-full flex items-center">
-            <button 
-              className={cn(
-                "px-2 h-full flex items-center text-[11px] leading-none focus:outline-none cursor-default",
-                activeMenu === "help" ? "bg-[var(--win-select-bg)] text-white" : "hover:bg-black/5"
-              )}
-              onClick={(e) => { e.stopPropagation(); handleMenuClick("help"); }}
-              onMouseEnter={() => handleMenuHover("help")}
-            >
-              <span className="underline">H</span>elp
-            </button>
-            {activeMenu === "help" && (
-              <div className="absolute left-0 top-full flex flex-col bg-[var(--win-face)] shadow-[2px_2px_0_rgba(0,0,0,0.3)] border border-[var(--win-dk-shadow)] z-50 min-w-[150px] py-0.5">
-                <button className="menu-item opacity-40">Help Topics</button>
-                <div className="h-[1px] bg-[var(--win-shadow)] my-0.5 mx-1 shadow-[0_1px_0_white]" />
-                <button className="menu-item" onClick={(e) => { e.stopPropagation(); setIsAboutOpen(true); closeMenus(); }}>About Notepad</button>
-              </div>
-            )}
-          </div>
-        </div>
-      </div>
+        <Win95MenuDropdown 
+          label={<span><span className="underline">H</span>elp</span>}
+          isOpen={activeMenu === "help"}
+          onOpen={() => handleMenuClick("help")}
+          onHover={() => handleMenuHover("help")}
+        >
+          <Win95MenuAction label="Help Topics" disabled />
+          <Win95MenuSeparator />
+          <Win95MenuAction label="About Notepad" onClick={() => { setIsAboutOpen(true); closeMenus(); }} />
+        </Win95MenuDropdown>
+      </Win95MenuBar>
 
       {/* Editor Area */}
       <textarea
@@ -399,32 +364,6 @@ export default function Notepad({
         <div className="fixed inset-0 z-40" onMouseDown={closeMenus} />
       )}
 
-      <style jsx>{`
-        .menu-item {
-          width: 100%;
-          padding: 2px 16px;
-          text-align: left !important;
-          font-size: 11px;
-          cursor: default;
-          white-space: nowrap;
-          display: flex;
-          justify-content: flex-start !important;
-          align-items: center;
-          border: none;
-          background: transparent;
-        }
-        .menu-item:hover {
-          background-color: var(--win-select-bg);
-          color: white;
-        }
-        .menu-item:disabled {
-          opacity: 0.4;
-        }
-        .menu-item:disabled:hover {
-          background-color: transparent;
-          color: black;
-        }
-      `}</style>
     </div>
   );
 }

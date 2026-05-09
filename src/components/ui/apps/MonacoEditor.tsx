@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState } from "react";
 import Editor, { type OnMount, loader } from "@monaco-editor/react";
 import { motion, AnimatePresence } from "framer-motion";
-import type { SovereignRuntimeProps } from "@/runtime/runtime-dispatch";
+import { SovereignRuntimeProps, extractRuntimeTextPayload } from "@/runtime/runtime-dispatch";
 import type { RuntimeActivityState } from "@/lib/runtime";
 import { cn } from "@/lib/style-composer";
+import type { WindowData } from "@/lib/os-config";
 
 // Define Specimen Coding Civilization Theme
 if (typeof window !== "undefined") {
@@ -28,13 +29,14 @@ const DEFAULT_CONTENT = `// Specimen OS — Monaco Editor\n// Vessel sovereign: 
 
 interface MonacoEditorProps extends SovereignRuntimeProps {
   onActivityChange?: (state: RuntimeActivityState) => void;
-  onDataChange?: (data: unknown) => void;
-  initialData?: unknown;
+  onDataChange?: (data: WindowData) => void;
+  initialData?: WindowData;
 }
 
 export default function MonacoEditorApp({
   isVisible,
   onFocus,
+  onMaximize,
   onActivityChange,
   onDataChange,
   initialData,
@@ -51,10 +53,9 @@ export default function MonacoEditorApp({
   onActivityChangeRef.current = onActivityChange;
   onDataChangeRef.current = onDataChange;
 
-  const resolveContent = (data: any): string => {
-    if (typeof data === "string") return data;
-    const content = (data as Record<string, unknown> | null)?.content;
-    return typeof content === "string" ? content : DEFAULT_CONTENT;
+  const resolveContent = (data: WindowData | undefined): string => {
+    const payload = extractRuntimeTextPayload(data);
+    return payload || DEFAULT_CONTENT;
   };
 
   const defaultValue = useRef(resolveContent(initialData)).current;
@@ -87,6 +88,17 @@ export default function MonacoEditorApp({
         const content = editorRef.current?.getValue();
         if (content !== undefined) {
           onDataChangeRef.current?.({ content });
+          
+          // Derive environmental subtitle from first line
+          const firstLine = content.split("\n").find(
+            (l: string) => l.trim() && !l.trim().startsWith("//") && !l.trim().startsWith("#") && !l.trim().startsWith("/*")
+          );
+          const subtitle = firstLine?.trim().slice(0, 40) || undefined;
+          
+          onActivityChangeRef.current?.({ 
+            dirty: true,
+            subtitle 
+          });
           setSaveStatus("stable");
         }
       }, 1000);

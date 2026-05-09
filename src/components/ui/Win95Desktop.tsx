@@ -7,7 +7,8 @@ import Win95DesktopIcon from "./Win95DesktopIcon";
 import Win95BootSequence from "./Win95BootSequence";
 import Win95ShutdownSequence from "./Win95ShutdownSequence";
 import Win95Window from "./Win95Window";
-import { VFSNode, AppType, SOVEREIGN_REGISTRY } from "@/lib/os-config";
+import { DEFAULT_VFS } from "@/lib/vfs-init";
+import { VFSNode, AppType, SOVEREIGN_REGISTRY, WindowData } from "@/lib/os-config";
 import { RuntimeConstitution, getLifecycleState, AudioPlaybackState, RuntimeActivityState } from "@/lib/runtime";
 import { loadSessionSnapshot, useSessionSave } from "@/hooks/useSessionPersistence";
 import { useWindowManager, SPECIMEN_ID } from "@/hooks/useWindowManager";
@@ -37,6 +38,137 @@ function updateNodeInTree(nodes: VFSNode[], id: string, updates: Partial<VFSNode
   });
 }
 
+/**
+ * SovereignWindowRuntime
+ * Stabilizes callbacks for sovereign applications to prevent render feedback loops.
+ */
+const SovereignWindowRuntime = ({ 
+  win, 
+  lifecycle, 
+  updateWindowState, 
+  closeWindow, 
+  minimizeWindow, 
+  focusWindow, 
+  setVfs, 
+  updateRecents,
+  handleOpenApp,
+  vfs,
+  runtimeSnapshots,
+  onOpenNode,
+  onMaximize,
+  runtimeLogs
+}: {
+  win: WindowState;
+  lifecycle: string;
+  updateWindowState: (id: string, patch: Partial<WindowState>) => void;
+  closeWindow: (id: string) => void;
+  minimizeWindow: (id: string) => void;
+  focusWindow: (id: string) => void;
+  setVfs: React.Dispatch<React.SetStateAction<VFSNode[]>>;
+  updateRecents: (id: string, type: AppType, title: string, icon: string, data?: WindowData) => void;
+  handleOpenApp: (type: AppType, title?: string, icon?: string, data?: WindowData) => void;
+  vfs: VFSNode[];
+  runtimeSnapshots: RuntimeSnapshot[];
+  onOpenNode: (node: VFSNode) => void;
+  onMaximize: () => void;
+  runtimeLogs?: string[];
+}) => {
+  const onActivityChange = useCallback((state: RuntimeActivityState) => {
+    updateWindowState(win.id, { activity: state });
+  }, [win.id, updateWindowState]);
+
+  const onDataChange = useCallback((data: WindowData) => {
+    updateWindowState(win.id, { data });
+    setVfs(prev => updateNodeInTree(prev, win.id, { content: extractRuntimeTextPayload(data) }));
+    updateRecents(win.id, win.type, win.title, win.icon, data);
+  }, [win.id, win.type, win.title, win.icon, updateWindowState, setVfs, updateRecents]);
+
+  const onPositionChange = useCallback((pos: { x: number; y: number }) => {
+    updateWindowState(win.id, { position: pos });
+  }, [win.id, updateWindowState]);
+
+  const onPlaybackChange = useCallback((state: AudioPlaybackState) => {
+    updateWindowState(win.id, { playback: state });
+  }, [win.id, updateWindowState]);
+
+  const onClose = useCallback(() => closeWindow(win.id), [win.id, closeWindow]);
+  const onMinimize = useCallback(() => minimizeWindow(win.id), [win.id, minimizeWindow]);
+  const onFocus = useCallback(() => focusWindow(win.id), [win.id, focusWindow]);
+  const handleMaximize = useCallback(() => onMaximize(), [onMaximize]);
+
+  const onOpenApp = useCallback((type: AppType, title?: string, icon?: string, data?: WindowData) => {
+    handleOpenApp(type, title, icon, data);
+  }, [handleOpenApp]);
+
+  return (
+    <DispatchSovereignCitizen
+      type={win.type}
+      isVisible={lifecycle === "running"}
+      onClose={onClose}
+      onMinimize={onMinimize}
+      onMaximize={handleMaximize}
+      onFocus={onFocus}
+      onPositionChange={onPositionChange}
+      onPlaybackChange={onPlaybackChange}
+      onActivityChange={onActivityChange}
+      onDataChange={onDataChange}
+      initialData={win.data as WindowData}
+      vfs={vfs}
+      runtimeSnapshots={runtimeSnapshots}
+      onOpenNode={onOpenNode}
+      onOpenApp={onOpenApp}
+      onCloseApp={closeWindow}
+      onUpdateVFS={setVfs}
+      runtimeLogs={runtimeLogs}
+    />
+  );
+};
+
+/**
+ * ManagedWindowRuntime
+ * Stabilizes callbacks for managed applications (Explorer, Browser).
+ */
+const ManagedWindowRuntime = ({
+  win,
+  vfs,
+  recents,
+  runtimeSnapshots,
+  onOpenNode,
+  onFocusWindow,
+  updateWindowState
+}: {
+  win: WindowState;
+  vfs: VFSNode[];
+  recents: PersistedRecent[];
+  runtimeSnapshots: RuntimeSnapshot[];
+  onOpenNode: (node: VFSNode) => void;
+  onFocusWindow: (id: string) => void;
+  updateWindowState: (id: string, patch: Partial<WindowState>) => void;
+}) => {
+  const onDataChange = useCallback((data: WindowData) => {
+    updateWindowState(win.id, { data });
+  }, [win.id, updateWindowState]);
+
+  const onActivityChange = useCallback((state: RuntimeActivityState) => {
+    updateWindowState(win.id, { activity: state });
+  }, [win.id, updateWindowState]);
+
+  return (
+    <DispatchManagedCitizen
+      type={win.type}
+      windowId={win.id}
+      windowData={win.data}
+      vfs={vfs}
+      recents={recents}
+      runtimeSnapshots={runtimeSnapshots}
+      onOpenNode={onOpenNode}
+      onFocusWindow={onFocusWindow}
+      onDataChange={onDataChange}
+      onActivityChange={onActivityChange}
+    />
+  );
+};
+
 
 export interface WindowState {
   id: string;
@@ -50,7 +182,7 @@ export interface WindowState {
   constitution: RuntimeConstitution;
   playback?: AudioPlaybackState;
   activity?: RuntimeActivityState;
-  data?: any;
+  data?: WindowData;
   position?: { x: number; y: number };
   width?: number | string;
   height?: number | string;
@@ -71,6 +203,7 @@ interface Win95DesktopProps {
   isAnalyzing: boolean;
   isDownloading?: boolean;
   isSearchVisible: boolean;
+  runtimeLogs?: string[];
 }
 
 export default function Win95Desktop({
@@ -85,6 +218,7 @@ export default function Win95Desktop({
   isAnalyzing,
   isDownloading,
   isSearchVisible,
+  runtimeLogs,
 }: Win95DesktopProps) {
   // --- Session Persistence: Load ---
   // Lazy initialization ensures deterministic, synchronous state hydration.
@@ -151,7 +285,23 @@ export default function Win95Desktop({
     };
   }, []);
 
+  const handleOpenApp = useCallback((type: AppType, title?: string, icon?: string, data?: WindowData) => {
+    setIsStartMenuOpen(false);
+    // Generate a reasonably unique ID for procedural spawning
+    const id = `${type.toLowerCase()}-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
+    
+    // Icon Authority: Use provided icon, or registry default, or generic fallback
+    const finalIcon = icon || SOVEREIGN_REGISTRY[type]?.defaultIcon || "⚙️";
+    const finalTitle = title || type;
+
+    openWindow(id, type, finalTitle, finalIcon, data);
+  }, [openWindow]);
+
   const handleOpenNode = (node: VFSNode) => {
+    if (!node) {
+      console.warn("SPECIMEN: Attempted to open undefined VFSNode. Launch aborted.");
+      return;
+    }
     setIsStartMenuOpen(false);
     if (node.type === "folder") {
       openWindow(node.id, "EXPLORER", node.name, node.icon, node);
@@ -165,7 +315,7 @@ export default function Win95Desktop({
     } else if (node.name.toLowerCase().endsWith(".wsz")) {
       // Skin projection logic: Find an existing Webamp or open a new one with this skin
       const webamp = windows.find(w => w.type === "WEBAMP");
-      const skinUrl = node.metadata?.skinUrl;
+      const skinUrl = node.metadata?.skinUrl as string | undefined;
       
       if (webamp) {
         // Project skin into existing instance
@@ -226,29 +376,39 @@ export default function Win95Desktop({
             // Sovereign Citizens — suspended runtime stays mounted; visibility is CSS-controlled.
             if (win.constitution === "sovereign") {
               const spatial = SOVEREIGN_REGISTRY[win.type]?.spatial ?? "full";
-              const sovereignCallbacks = {
-                isVisible: lifecycle === "running",
-                onClose: () => closeWindow(win.id),
-                onMinimize: () => minimizeWindow(win.id),
-                onFocus: () => focusWindow(win.id),
-                onPositionChange: (pos: { x: number; y: number }) =>
-                  updateWindowState(win.id, { position: pos }),
-                onPlaybackChange: (state: AudioPlaybackState) =>
-                  updateWindowState(win.id, { playback: state }),
-                onActivityChange: (state: RuntimeActivityState) =>
-                  updateWindowState(win.id, { activity: state }),
-                onDataChange: (data: unknown) => {
-                  updateWindowState(win.id, { data });
-                  // VFS Synchronization (Environmental Materiality)
-                  setVfs(prev => updateNodeInTree(prev, win.id, { content: extractRuntimeTextPayload(data) }));
-                  updateRecents(win.id, win.type, win.title, win.icon, data);
-                },
-                initialData: win.data,
-              };
-
-              // Topology Normalization: Full-sovereign runtimes (Webamp) are centered, 
-              // while vessel-based runtimes (Monaco, JSPaint) are maximized on mobile.
               const isFullSovereign = win.constitution === "sovereign" && SOVEREIGN_REGISTRY[win.type]?.spatial === "full";
+
+              const runtime = (
+                <SovereignWindowRuntime
+                  win={win}
+                  lifecycle={lifecycle}
+                  updateWindowState={updateWindowState}
+                  closeWindow={closeWindow}
+                  minimizeWindow={minimizeWindow}
+                  focusWindow={focusWindow}
+                  setVfs={setVfs}
+                  updateRecents={updateRecents}
+                  handleOpenApp={handleOpenApp}
+                  vfs={vfs}
+                  runtimeSnapshots={windows
+                    .filter((w) => w.id !== win.id)
+                    .sort((a, b) => b.zIndex - a.zIndex)
+                    .map((w) => ({
+                      id:          w.id,
+                      type:        w.type,
+                      title:       w.title,
+                      icon:        w.icon,
+                      isMinimized: w.isMinimized,
+                      activity:    w.activity,
+                      playback:    w.playback,
+                      subtitle:    resolveRuntimeSubtitle(w),
+                      openedAt:    w.openedAt,
+                    }))}
+                  onOpenNode={handleOpenNode}
+                  onMaximize={() => toggleMaximize(win.id)}
+                  runtimeLogs={runtimeLogs}
+                />
+              );
 
               if (win.constitution === "sovereign" && SOVEREIGN_REGISTRY[win.type]?.spatial === "vessel") {
                 return (
@@ -290,7 +450,7 @@ export default function Win95Desktop({
                       overflow: "hidden",
                     }}
                   >
-                    <DispatchSovereignCitizen type={win.type} {...sovereignCallbacks} />
+                    {runtime}
                   </Win95Window>
                 );
               }
@@ -329,7 +489,7 @@ export default function Win95Desktop({
                     height: win.height,
                   }}
                 >
-                  <DispatchSovereignCitizen type={win.type} {...sovereignCallbacks} />
+                  {runtime}
                 </motion.div>
               );
             }
@@ -420,10 +580,8 @@ export default function Win95Desktop({
                     overflow: "hidden", // Native citizens are always clipped
                   }}
                 >
-                  <DispatchManagedCitizen
-                    type={win.type}
-                    windowId={win.id}
-                    windowData={win.data}
+                  <ManagedWindowRuntime
+                    win={win}
                     vfs={vfs}
                     recents={recents}
                     runtimeSnapshots={windows
@@ -441,8 +599,8 @@ export default function Win95Desktop({
                         openedAt:    w.openedAt,
                       }))}
                     onOpenNode={handleOpenNode}
-                    onFocusWindow={(id) => focusWindow(id)}
-                    onDataChange={(data) => updateWindowState(win.id, { data })}
+                    onFocusWindow={focusWindow}
+                    updateWindowState={updateWindowState}
                   />
                 </Win95Window>
               </motion.div>
@@ -489,28 +647,29 @@ export default function Win95Desktop({
             {/* Start Menu Items */}
             <div className="flex-1 flex flex-col py-1 win-stagger">
               <StartMenuItem icon="FileFind_16x16_4.png" label="Specimen Analyzer" onClick={onOpenSpecimen} />
+              <StartMenuItem icon="⌨️" label="MS-DOS Prompt" onClick={() => handleOpenApp("TERMINAL", "MS-DOS Prompt")} />
               <StartMenuItem icon="Computer_16x16_4.png" label="My Computer" onClick={() => handleOpenNode(vfs.find(n => n.id === "desktop-mycomputer")!)} />
-              <StartMenuItem icon="Globe_16x16_4.png" label="Internet Explorer" onClick={() => handleOpenNode(vfs.find(n => n.appType === "BROWSER")!)} />
+              <StartMenuItem icon="Globe_16x16_4.png" label="Internet Explorer" onClick={() => handleOpenApp("BROWSER", "Internet Explorer")} />
               <StartMenuItem icon="Folder_16x16_4.png" label="My Documents" onClick={() => handleOpenNode(vfs.find(n => n.name === "My Documents")!)} />
-              <StartMenuItem icon="Mmsys100_16x16_4.png" label="Winamp" onClick={() => handleOpenNode(vfs.find(n => n.appType === "WEBAMP")!)} />
+              <StartMenuItem icon="Mmsys100_16x16_4.png" label="Winamp" onClick={() => handleOpenApp("WEBAMP", "Winamp")} />
                <StartMenuItem icon="📄" label={(() => {
                  const win = windows.find(w => w.type === "NOTEPAD");
                  const sub = win ? resolveRuntimeSubtitle(win) : undefined;
                  const displaySub = sub ? (sub.length > 16 ? sub.slice(0, 16) + "..." : sub) : undefined;
                  return displaySub ? `Notepad (${displaySub})` : "Notepad";
-               })()} onClick={() => handleOpenNode(vfs.find(n => n.appType === "NOTEPAD")!)} />
+               })()} onClick={() => handleOpenApp("NOTEPAD", "Notepad")} />
                <StartMenuItem icon="📝" label={(() => {
                  const win = windows.find(w => w.type === "MONACO_EDITOR");
                  const sub = win ? resolveRuntimeSubtitle(win) : undefined;
                  const displaySub = sub ? (sub.length > 16 ? sub.slice(0, 16) + "..." : sub) : undefined;
                  return displaySub ? `Monaco (${displaySub})` : "Monaco Editor";
-               })()} onClick={() => handleOpenNode(vfs.find(n => n.appType === "MONACO_EDITOR")!)} />
+               })()} onClick={() => handleOpenApp("MONACO_EDITOR", "Monaco Editor")} />
                <StartMenuItem icon="🎨" label={(() => {
                  const win = windows.find(w => w.type === "JSPAINT");
                  const sub = win?.activity?.subtitle;
                  const displaySub = sub ? (sub.length > 16 ? sub.slice(0, 16) + "..." : sub) : undefined;
                  return displaySub ? `Paint (${displaySub})` : "Paint";
-               })()} onClick={() => handleOpenNode(vfs.find(n => n.appType === "JSPAINT")!)} />
+               })()} onClick={() => handleOpenApp("JSPAINT", "Paint")} />
               <StartMenuItem icon="FolderOpen_16x16_4.png" label="Recent Items" onClick={() => handleOpenNode({ id: "__recents__", name: "Recent Items", type: "folder", icon: "📂" })} />
               <StartMenuItem icon="RecycleEmpty_16x16_4.png" label="Shut Down..." onClick={() => {
                 setIsStartMenuOpen(false);

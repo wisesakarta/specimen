@@ -3,7 +3,6 @@
 import { useEffect, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import DesktopAmbientOverlay from "./DesktopAmbientOverlay";
-import Win95ProgressBar from "./Win95ProgressBar";
 
 interface Win95ShutdownSequenceProps {
   mode?: "shutdown" | "restart";
@@ -40,25 +39,11 @@ export default function Win95ShutdownSequence({ mode = "shutdown", onComplete }:
             transition={{ duration: 1.5, ease: "linear" }}
             className="w-full h-full bg-black flex items-center justify-center relative"
           >
-            {/* 1. Subtle Dithered Horizon (Termination Phase) */}
-            <div 
-              className="absolute inset-0 win-dither opacity-[0.05]"
-              style={{
-                background: 'radial-gradient(circle at 50% 0%, rgba(128, 0, 0, 0.2) 0%, transparent 60%)',
-                mixBlendMode: 'overlay'
-              }}
-            />
-
-            {/* 2. Authentic Win95 "Please wait..." box */}
-            <div className="flex flex-col items-center gap-4 p-8 win-dither bg-[rgba(0,0,0,0.6)] z-10">
-               <div className="font-sans text-[12px] text-[var(--win-face)] opacity-70 tracking-wide">
-                 Please wait while the environment terminates...
+            {/* Termination message container */}
+            <div className="z-10 flex flex-col items-center">
+               <div className="text-[16px] text-white opacity-90 tracking-wide text-center" style={{ fontFamily: "var(--font-shell)" }}>
+                 Please wait while your computer shuts down.
                </div>
-               <Win95ProgressBar 
-                  indeterminate
-                  height={4}
-                  className="w-40 border-0"
-               />
             </div>
           </motion.div>
         ) : (
@@ -69,16 +54,17 @@ export default function Win95ShutdownSequence({ mode = "shutdown", onComplete }:
             transition={{ duration: 1.2 }}
             className="w-full h-full bg-black flex flex-col items-center justify-center relative"
           >
-            {/* 3. Full-Screen Dithered Finality */}
-            <div className="absolute inset-0 win-dither opacity-[0.1]" />
-
-            {/* 4. Authentic Win95 "It is now safe..." materiality */}
+            {/* Final disconnect state indicator */}
             <div className="flex flex-col items-center gap-6 z-[20001]">
               <div 
-                className="font-sans text-[16px] text-orange-600 opacity-80 text-center leading-relaxed"
-                style={{ letterSpacing: "0.04em", textShadow: '0 0 4px rgba(255, 100, 0, 0.2)' }}
+                className="text-[20px] text-[#ff7700] text-center"
+                style={{ 
+                  fontFamily: "var(--font-shell)",
+                  fontWeight: "normal",
+                  letterSpacing: "0.02em" 
+                }}
               >
-                It is now safe to disconnect.
+                It is now safe to turn off your computer.
               </div>
             </div>
           </motion.div>

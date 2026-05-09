@@ -11,7 +11,7 @@
  *   - Transient shell state (activeWindowId, z-order) is recalculated on restore.
  */
 
-import type { AppType, VFSNode } from "@/lib/os-config";
+import type { AppType, VFSNode, WindowData } from "@/lib/os-config";
 import type { RuntimeConstitution } from "@/lib/runtime";
 
 export const SESSION_KEY = "specimen-session-v1";
@@ -23,7 +23,7 @@ export interface PersistedRecent {
   icon: string;
   lastOpenedAt: number;
   /** Opaque runtime state. */
-  data?: unknown;
+  data?: WindowData;
 }
 
 export interface PersistedWindow {
@@ -38,7 +38,7 @@ export interface PersistedWindow {
   width?: number | string;
   height?: number | string;
   /** Opaque runtime state (Monaco: { content: string }). Shell never reads this. */
-  data?: unknown;
+  data?: WindowData;
   /** Persisted activity.dirty — restores the taskbar dirty indicator without re-emission. */
   dirty?: true;
   /** Persisted activity.subtitle — restores the artifact name (e.g. filename) immediately. */

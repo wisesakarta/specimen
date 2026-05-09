@@ -221,6 +221,7 @@ export default function HomePage() {
       isAnalyzing={isAnalyzing}
       isDownloading={isDownloading}
       isSearchVisible={isAppRunning && !scrapeResult && !isAnalyzing}
+      runtimeLogs={activityLog}
     >
 
 

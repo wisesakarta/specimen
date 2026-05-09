@@ -30,28 +30,38 @@ export default function Win95BootSequence({ onComplete }: Win95BootSequenceProps
     >
       <DesktopAmbientOverlay />
 
-      {/* 1. Dithered Horizon Substrate — The Emergence of Specimen */}
-      <motion.div
-        initial={{ opacity: 0 }}
-        animate={{ opacity: 0.15 }}
-        transition={{ duration: 3, ease: "easeInOut" }}
-        className="absolute inset-0 win-dither"
-        style={{
-          background: 'radial-gradient(circle at 50% 120%, rgba(0, 128, 128, 0.4) 0%, transparent 70%)',
-          mixBlendMode: 'overlay'
-        }}
-      />
+      {/* OS Identity Initialization */}
+      <div className="absolute inset-0 flex items-center justify-center px-4">
+        <motion.div 
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          transition={{ duration: 1.5, ease: "easeOut" }}
+          className="flex flex-col items-start max-w-full"
+        >
+          <div className="text-[9px] sm:text-[12px] font-bold text-white/70 mb-1 ml-1 truncate" style={{ letterSpacing: '0.15em' }}>
+            Technical Standard
+          </div>
+          <div className="flex items-baseline gap-2 sm:gap-3 flex-wrap sm:flex-nowrap">
+            <div 
+              className="text-5xl sm:text-7xl font-black italic text-white" 
+              style={{ textShadow: "3px 3px 0 var(--win-shadow)", letterSpacing: "-0.02em" }}
+            >
+              Specimen
+            </div>
+            <div className="text-2xl sm:text-4xl font-light text-white/80" style={{ letterSpacing: "0.04em" }}>
+              v2.0
+            </div>
+          </div>
+        </motion.div>
+      </div>
 
-      {/* 2. Quiet Progress Bar — Mechanical Pulse */}
-      <div className="absolute bottom-[18%] left-1/2 -translate-x-1/2 flex flex-col items-center gap-3">
+      {/* Quiet Progress Bar — Mechanical Pulse */}
+      <div className="absolute bottom-[15%] left-1/2 -translate-x-1/2 flex flex-col items-center gap-3">
         <Win95ProgressBar 
-          progress={100} // This bar animates from 0 to 100 via its internal motion
-          className="w-48"
-          height={14}
+          indeterminate
+          className="w-64"
+          height={16}
         />
-        <div className="font-sans text-[10px] text-[var(--win-face)] opacity-40 tracking-[0.15em]">
-          Restoring sovereign substrate...
-        </div>
       </div>
 
       <AnimatePresence>
@@ -61,7 +71,7 @@ export default function Win95BootSequence({ onComplete }: Win95BootSequenceProps
             initial={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             transition={{ duration: 1.8, ease: [0.4, 0, 0.2, 1] }}
-            className="w-full h-full bg-black flex items-center justify-center"
+            className="w-full h-full bg-black flex items-center justify-center pointer-events-none"
           />
         )}
       </AnimatePresence>

@@ -19,7 +19,8 @@
 
 import { useEffect, useRef } from "react";
 import { loadSnapshot, saveSnapshot, SessionSnapshot, PersistedWindow, PersistedRecent } from "@/lib/persistence";
-import { DEFAULT_VFS, VFSNode } from "@/lib/os-config";
+import { DEFAULT_VFS } from "@/lib/vfs-init";
+import { VFSNode, WindowData } from "@/lib/os-config";
 import type { WindowState } from "@/components/ui/Win95Desktop";
 
 /** Debounce interval for auto-save (ms). */
@@ -40,7 +41,7 @@ function restoreWindow(persistedWindow: PersistedWindow, index: number): WindowS
     isMaximized: persistedWindow.isMaximized ?? false,
     zIndex: 100 + index,
     constitution: persistedWindow.constitution,
-    data: persistedWindow.data,
+    data: persistedWindow.data as WindowData,
     position: persistedWindow.position,
     width: persistedWindow.width,
     height: persistedWindow.height,
@@ -67,7 +68,7 @@ function serializeWindow(window: WindowState): PersistedWindow {
     position: window.position,
     width: window.width,
     height: window.height,
-    data: window.data,
+    data: window.data as WindowData,
     dirty: window.activity?.dirty === true ? true : undefined,
     subtitle: window.activity?.subtitle,
     openedAt: window.openedAt,
