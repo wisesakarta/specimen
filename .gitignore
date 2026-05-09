@@ -41,3 +41,5 @@ tasks/tmp/*.html
 
 *storybook.log
 storybook-static
+AGENTS.md
+.env*

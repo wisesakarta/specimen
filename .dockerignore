@@ -1,0 +1,8 @@
+node_modules
+.next
+.git
+.agent
+tools/debug
+OTSO_AGENTS.md
+*.log
+.env.local
