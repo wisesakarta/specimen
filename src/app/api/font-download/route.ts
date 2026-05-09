@@ -262,13 +262,6 @@ const encoder = new TextEncoder();
 
 export async function POST(request: Request): Promise<Response> {
   try {
-    // Security Gate: Verify internal secret
-    const secret = request.headers.get("x-specimen-secret");
-    if (secret !== process.env.INTERNAL_SECRET) {
-      console.warn(`[Security] Unauthorized download attempt.`);
-      return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
-    }
-
     const body = await request.json();
     console.log("[API] Received download request:", JSON.stringify(body, null, 2));
     

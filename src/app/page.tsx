@@ -4,7 +4,6 @@ import { useEffect, useState } from "react";
 import { AnimatePresence } from "framer-motion";
 import Win95AnalysisDashboard from "@/components/ui/Win95AnalysisDashboard";
 import Win95Desktop from "@/components/ui/Win95Desktop";
-import Win95SystemKeyDialog from "@/components/ui/Win95SystemKeyDialog";
 
 interface SmartFormState {
   licenseId?: string;
@@ -31,14 +30,6 @@ export default function HomePage() {
   const [scrapeResult, setScrapeResult] = useState<any | null>(null);
   const [notice, setNotice] = useState<Notice | null>(null);
   const [isAppRunning, setIsAppRunning] = useState(false);
-  const [systemKey, setSystemKey] = useState<string | null>(null);
-  const [showAuthDialog, setShowAuthDialog] = useState(false);
-
-  // Initialize system key from session storage
-  useEffect(() => {
-    const saved = sessionStorage.getItem("specimen_system_key");
-    if (saved) setSystemKey(saved);
-  }, []);
 
   const appendLog = (message: string) => {
     setActivityLog((prev) => [...prev, message].slice(-200));
@@ -92,11 +83,6 @@ export default function HomePage() {
       return;
     }
 
-    if (!systemKey) {
-      setShowAuthDialog(true);
-      return;
-    }
-
     // Prevent stale result reuse when a new analyze attempt starts.
     setScrapeResult(null);
     setActivityLog([]);
@@ -106,18 +92,9 @@ export default function HomePage() {
     try {
       const res = await fetch("/api/analyze-url", {
         method: "POST",
-        headers: { 
-          "Content-Type": "application/json",
-          "x-specimen-secret": systemKey
-        },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ url: targetUrl.trim() }),
       });
-      
-      if (res.status === 401) {
-        setSystemKey(null);
-        sessionStorage.removeItem("specimen_system_key");
-        throw new Error("Invalid System Key");
-      }
 
       const data = await res.json();
       if (data.error) throw new Error(data.error);
@@ -133,10 +110,6 @@ export default function HomePage() {
 
   const handleDownloadAll = async () => {
     if (!scrapeResult?.fonts?.length) return;
-    if (!systemKey) {
-      setShowAuthDialog(true);
-      return;
-    }
 
     const expectedCountHint =
       typeof scrapeResult?.expectedCount === "number" && scrapeResult.expectedCount > 1
@@ -149,10 +122,7 @@ export default function HomePage() {
     try {
       const res = await fetch("/api/font-download", {
         method: "POST",
-        headers: { 
-          "Content-Type": "application/json",
-          "x-specimen-secret": systemKey
-        },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           mode: "browser-intercept",
           targetUrl: scrapeResult.targetUrl || scrapeResult.originalUrl,
@@ -172,12 +142,6 @@ export default function HomePage() {
           },
         }),
       });
-
-      if (res.status === 401) {
-        setSystemKey(null);
-        sessionStorage.removeItem("specimen_system_key");
-        throw new Error("Invalid System Key");
-      }
 
       if (!res.body) throw new Error("No stream");
       const reader = res.body.getReader();
@@ -245,58 +209,41 @@ export default function HomePage() {
     }
   };
 
-  const handleAuthorize = (key: string) => {
-    setSystemKey(key);
-    sessionStorage.setItem("specimen_system_key", key);
-    setShowAuthDialog(false);
-    // After authorization, try to re-trigger the last action if possible
-    // For now, just let the user click Analyze/Download again
-  };
-
   return (
-    <>
-      <Win95Desktop
-        isSpecimenOpen={isAppRunning || isAnalyzing || !!scrapeResult}
-        onOpenSpecimen={() => setIsAppRunning(true)}
-        onCloseSpecimen={() => {
-          setIsAppRunning(false);
-          resetSession();
-        }}
-        notice={notice}
-        targetUrl={targetUrl}
-        onSearchChange={(val) => setTargetUrl(val)}
-        onAnalyze={handleAnalyze}
-        isAnalyzing={isAnalyzing}
-        isDownloading={isDownloading}
-        isSearchVisible={isAppRunning && !scrapeResult && !isAnalyzing}
-        runtimeLogs={activityLog}
-      >
+    <Win95Desktop
+      isSpecimenOpen={isAppRunning || isAnalyzing || !!scrapeResult}
+      onOpenSpecimen={() => setIsAppRunning(true)}
+      onCloseSpecimen={() => {
+        setIsAppRunning(false);
+        resetSession();
+      }}
+      notice={notice}
+      targetUrl={targetUrl}
+      onSearchChange={(val) => setTargetUrl(val)}
+      onAnalyze={handleAnalyze}
+      isAnalyzing={isAnalyzing}
+      isDownloading={isDownloading}
+      isSearchVisible={isAppRunning && !scrapeResult && !isAnalyzing}
+      runtimeLogs={activityLog}
+    >
 
 
-        {({ isActive, onMinimize }) => (
-          <AnimatePresence>
-            {scrapeResult && (
-                <Win95AnalysisDashboard
-                    result={scrapeResult}
-                    logs={activityLog}
-                    onDownload={handleDownloadAll}
-                    onReset={resetSession}
-                    isDownloading={isDownloading}
-                    progress={downloadProgress}
-                    isActive={isActive}
-                    onMinimize={onMinimize}
-                />
-            )}
-          </AnimatePresence>
-        )}
-      </Win95Desktop>
-
-      {showAuthDialog && (
-        <Win95SystemKeyDialog 
-          onAuthorize={handleAuthorize}
-          onCancel={() => setShowAuthDialog(false)}
-        />
+      {({ isActive, onMinimize }) => (
+        <AnimatePresence>
+          {scrapeResult && (
+              <Win95AnalysisDashboard
+                  result={scrapeResult}
+                  logs={activityLog}
+                  onDownload={handleDownloadAll}
+                  onReset={resetSession}
+                  isDownloading={isDownloading}
+                  progress={downloadProgress}
+                  isActive={isActive}
+                  onMinimize={onMinimize}
+              />
+          )}
+        </AnimatePresence>
       )}
-    </>
+    </Win95Desktop>
   );
 }
