@@ -338,7 +338,7 @@
 
   /* Font utilities */
   .mono   { font-family: var(--font-mono); }
-  .label  { font-family: var(--font-mono); font-size: 10px; text-transform: uppercase; letter-spacing: 0.12em; }
+  .label  { font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.12em; }
   .tabular { font-variant-numeric: tabular-nums; }
 
   /* Cursor utilities */
