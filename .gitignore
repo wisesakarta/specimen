@@ -41,5 +41,30 @@ tasks/tmp/*.html
 
 *storybook.log
 storybook-static
+
+# Internal Documentation & Strategy
+docs/
+ARCHITECTURAL_AUDIT.md
+COMMERCIAL-LICENSE.md
+REFACTOR_ROADMAP.md
+STRATEGIC_ANALYSIS.md
+TECHNICAL_BLUEPRINT_ABCDINAMO.md
+
+# Experimental & Non-Essential Tasks
+tasks/recon-*
+tasks/test-*
+tasks/abjad-*
+tasks/formulatype-*
+tasks/intervaltype-*
+tasks/typetype-*
+tasks/thedesignersfoundry-*
+tasks/typotheque-*
+
+# Non-Essential Support Tools
+tools/inspect*
+tools/check*
+tools/master_forge.py
+tools/patch-generic-pinterest.mjs
+tools/svelge.py
 AGENTS.md
 .env*
