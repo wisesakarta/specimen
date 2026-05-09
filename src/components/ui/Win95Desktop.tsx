@@ -755,13 +755,16 @@ export default function Win95Desktop({
           letterSpacing: '0.1em',
           fontWeight: 700,
           gap: 8,
-          opacity: 0.15, // Further reduced for atmospheric silence
+          opacity: 0.15,
           color: "var(--win-text)",
           textShadow: "1px 1px 0 rgba(255,255,255,0.05)"
         }}
       >
         <span>Specimen</span>
         <span style={{ color: "var(--win-shadow)", fontWeight: 400 }}>Technical Standard</span>
+        <span style={{ color: "var(--win-title-active)", opacity: 0.8 }}>
+          [{process.env.NEXT_PUBLIC_APP_ENV === "production" ? "PROD" : "DEV"}] {process.env.NEXT_PUBLIC_APP_BUILD}
+        </span>
       </div>
 
       {/* Notifications */}
