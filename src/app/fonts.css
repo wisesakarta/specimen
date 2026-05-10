@@ -1,37 +1,41 @@
 /* ─────────────────────────────────────────────
-   UNIFIED SYSTEM FONT: Departure Mono
-   Source: https://github.com/rektdeckard/departure-mono
-   Used for EVERYTHING: shell chrome, application content, branding, and code.
-   Transitioned from Win95 emulation to Specimen Tech Sovereign identity.
+   SPECIMEN 95 CANONICAL TYPEFACE: W95FA
+   Source: Alina Sava, SIL OFL 1.1 — a scalable re-creation of the
+   Windows 95 MS Sans Serif raster font.
+   Self-hosted from @fontsource/win95fa extraction.
+
+   This is the ONLY typeface in Specimen 95. Every shell surface,
+   every citizen chrome, every body label renders in W95FA.
+   Monospace-only contexts (Monaco editor, Terminal) also render
+   in W95FA for canonical operational coherence.
    ───────────────────────────────────────────── */
 
 @font-face {
-  font-family: 'Departure Mono';
-  src: url('/fonts/DepartureMono-Regular.woff2') format('woff2');
+  font-family: 'W95FA';
+  src: url('/fonts/W95FA-Regular.woff2') format('woff2');
   font-weight: 400;
   font-style: normal;
   font-display: block;
 }
 
-/* (Legacy fonts purged as per system update) */
-
 
 :root {
-  /* GLOBAL TYPE SOVEREIGNTY: Departure Mono */
-  --font-departure: 'Departure Mono', monospace;
+  /* Canonical system typeface — Win95 MS Sans Serif equivalent. */
+  --font-win95-chrome: 'W95FA', 'MS Sans Serif', Tahoma, sans-serif;
 
-  /* Shell font — Transitioned to Departure Mono */
-  --font-shell: var(--font-departure);
+  /* Shell font — every Win95 surface resolves through this token. */
+  --font-shell: var(--font-win95-chrome);
 
-  /* Application content font — Transitioned to Departure Mono */
-  --font-mm205: var(--font-departure);
+  /* Application content font. */
+  --font-mm205: var(--font-win95-chrome);
 
-  /* System font aliases */
-  --font-sans:      var(--font-departure);
-  --font-mono:      var(--font-departure);
-  --font-inter:     var(--font-departure);
-  --font-brand:     var(--font-departure);
-  --font-catalogue: var(--font-departure);
-  --font-replica:   var(--font-departure);
-  --font-geigy:     var(--font-departure);
+  /* System font aliases — retained for legacy call sites; all resolve
+     to W95FA so there is exactly one typeface in the runtime. */
+  --font-sans:      var(--font-win95-chrome);
+  --font-mono:      var(--font-win95-chrome);
+  --font-inter:     var(--font-win95-chrome);
+  --font-brand:     var(--font-win95-chrome);
+  --font-catalogue: var(--font-win95-chrome);
+  --font-replica:   var(--font-win95-chrome);
+  --font-geigy:     var(--font-win95-chrome);
 }

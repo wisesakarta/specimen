@@ -35,30 +35,7 @@ export default function HomePage() {
     setActivityLog((prev) => [...prev, message].slice(-200));
   };
 
-  const triggerZipDownload = (blob: Blob, fileName: string) => {
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = fileName;
-    link.style.display = "none";
-    document.body.appendChild(link);
-    link.click();
 
-    // Delay revoke so large downloads are not aborted by early object URL cleanup.
-    window.setTimeout(() => {
-      URL.revokeObjectURL(url);
-      link.remove();
-    }, 60000);
-  };
-
-  const zipBase64ToBlob = (base64: string): Blob => {
-    const binary = window.atob(base64);
-    const bytes = new Uint8Array(binary.length);
-    for (let i = 0; i < binary.length; i += 1) {
-      bytes[i] = binary.charCodeAt(i);
-    }
-    return new Blob([bytes], { type: "application/zip" });
-  };
 
   const resetSession = () => {
     setScrapeResult(null);
@@ -120,91 +97,85 @@ export default function HomePage() {
     setActivityLog([]);
 
     try {
-      const res = await fetch("/api/font-download", {
+      const isBatchDirect = scrapeResult.fonts.some(
+        (f: any) =>
+          typeof f?.url === "string" &&
+          (/^https?:\/\//i.test(f.url) || /^inline-font:\/\/[a-z0-9]+$/i.test(f.url))
+      );
+      
+      const payload = {
+        mode: isBatchDirect ? "batch-direct" : "browser-intercept",
+        targetUrl: scrapeResult.targetUrl || scrapeResult.originalUrl,
+        expectedCount: expectedCountHint,
+        injectScript: scrapeResult.injectScript,
+        masterFoundry: scrapeResult.masterFoundry,
+        licenseId: smartForm.licenseId || undefined,
+        licenseProof: smartForm.licenseProof || undefined,
+        fonts: scrapeResult.fonts,
+        metadata: {
+          foundry: scrapeResult.foundryName,
+          family: scrapeResult.fonts?.[0]?.family || "",
+          fonts: scrapeResult.fonts,
+          masterFoundry: scrapeResult.masterFoundry === true,
+          ...(scrapeResult.metadata || {}),
+          ...smartForm
+        },
+      };
+
+      const res = await fetch("/api/jobs", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          mode: "browser-intercept",
-          targetUrl: scrapeResult.targetUrl || scrapeResult.originalUrl,
-          expectedCount: expectedCountHint,
-          injectScript: scrapeResult.injectScript,
-          masterFoundry: scrapeResult.masterFoundry,
-          licenseId: smartForm.licenseId || undefined,
-          licenseProof: smartForm.licenseProof || undefined,
-          stream: true,
-          metadata: {
-            foundry: scrapeResult.foundryName,
-            family: scrapeResult.fonts?.[0]?.family || "",
-            fonts: scrapeResult.fonts,
-            masterFoundry: scrapeResult.masterFoundry === true,
-            ...(scrapeResult.metadata || {}), // CRITICAL: Forward metadata from scraper (e.g. bypassWhitelist)
-            ...smartForm
-          },
-        }),
+        body: JSON.stringify(payload),
       });
 
-      if (!res.body) throw new Error("No stream");
-      const reader = res.body.getReader();
-      const decoder = new TextDecoder();
-      let buffer = "";
-
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split("\n");
-        buffer = lines.pop() || "";
-        for (const line of lines) {
-          if (!line.trim()) continue;
-
-          let event: any;
-          try {
-            event = JSON.parse(line);
-          } catch {
-            continue;
-          }
-
-          if (event.type === "log") {
-            appendLog(String(event.message || ""));
-            continue;
-          }
-
-          if (event.type === "progress") {
-            const current = typeof event.current === "number" ? event.current : 0;
-            const total = typeof event.total === "number" ? event.total : 0;
-            setDownloadProgress({ current, total });
-            continue;
-          }
-
-          if (event.type === "error") {
-            const message = String(event.error || "Download failed");
-            appendLog(`✕ ${message}`);
-            throw new Error(message);
-          }
-
-          if (event.type === "result") {
-            setIsDownloading(false);
-            if (event.result && typeof event.result === "object") {
-              setScrapeResult((prev: any) => (prev ? { ...prev, downloadResult: event.result } : prev));
-            }
-            if (event.zipBase64) {
-              const blob = zipBase64ToBlob(String(event.zipBase64));
-              const fallbackFoundryToken =
-                String(scrapeResult?.foundryName || "fonts")
-                  .toLowerCase()
-                  .replace(/[^a-z0-9]+/g, "-")
-                  .replace(/-+/g, "-")
-                  .replace(/^-+|-+$/g, "") || "fonts";
-              const fileName = event.zipFile || `specimen-${fallbackFoundryToken}-fonts.zip`;
-              triggerZipDownload(blob, fileName);
-            }
-            return;
-          }
-        }
+      if (!res.ok) {
+        const errorData = await res.json().catch(() => ({}));
+        throw new Error(errorData.error || `Failed to spawn daemon job (HTTP ${res.status})`);
       }
+
+      const { jobId } = await res.json();
+      appendLog(`[Daemon] Background job spawned. PID: ${jobId}`);
+
+      let lastLogCount = 0;
+      
+      const pollInterval = window.setInterval(async () => {
+        try {
+          const statusRes = await fetch(`/api/jobs/${jobId}`);
+          if (!statusRes.ok) return;
+
+          const job = await statusRes.json();
+          
+          if (job.logs && job.logs.length > lastLogCount) {
+            const newLogs = job.logs.slice(lastLogCount);
+            setActivityLog(prev => [...prev, ...newLogs].slice(-200));
+            lastLogCount = job.logs.length;
+          }
+
+          if (job.status === "SUCCESS") {
+            window.clearInterval(pollInterval);
+            setIsDownloading(false);
+            
+            const downloadUrl = `/api/jobs/${jobId}/download`;
+            const link = document.createElement("a");
+            link.href = downloadUrl;
+            link.style.display = "none";
+            document.body.appendChild(link);
+            link.click();
+            
+            window.setTimeout(() => link.remove(), 1000);
+            appendLog(`[Daemon] Execution SUCCESS. Artifact delivery initiated.`);
+          } else if (job.status === "FAILED") {
+            window.clearInterval(pollInterval);
+            setIsDownloading(false);
+            appendLog(`✕ [Daemon] Execution FAILED: ${job.result?.error || "Internal error"}`);
+          }
+        } catch (err) {
+          console.error("Polling error:", err);
+        }
+      }, 2000);
+
     } catch (e: any) {
       appendLog(`✕ ${e.message}`);
-    } finally {
       setIsDownloading(false);
     }
   };

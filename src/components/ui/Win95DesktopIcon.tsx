@@ -1,7 +1,6 @@
 "use client";
 
 import { cn } from "@/lib/style-composer";
-import { useRef, useState } from "react";
 import Win95Icon from "./Win95Icon";
 
 interface Win95DesktopIconProps {
@@ -13,6 +12,12 @@ interface Win95DesktopIconProps {
   active?: boolean;
 }
 
+/**
+ * Win95DesktopIcon
+ * Canonical desktop icon tile. When selected, the label paints with the
+ * standard selection background (navy) and white text, with a 1px dotted
+ * focus rectangle around the label — matching the Windows 95 shell behavior.
+ */
 export default function Win95DesktopIcon({
   label,
   icon,
@@ -21,21 +26,6 @@ export default function Win95DesktopIcon({
   className,
   active = false,
 }: Win95DesktopIconProps) {
-  const [isHovered, setIsHovered] = useState(false);
-  const [isFlashing, setIsFlashing] = useState(false);
-  const flashRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  const handleDoubleClick = (e: React.MouseEvent) => {
-    e.stopPropagation();
-    // Win95 icon flash: inverted → selected → open (80ms total)
-    setIsFlashing(true);
-    if (flashRef.current) clearTimeout(flashRef.current);
-    flashRef.current = setTimeout(() => {
-      setIsFlashing(false);
-      onDoubleClick?.();
-    }, 80);
-  };
-
   return (
     <div
       className={cn(
@@ -46,50 +36,43 @@ export default function Win95DesktopIcon({
         e.stopPropagation();
         onClick?.();
       }}
-      onDoubleClick={handleDoubleClick}
-      onMouseEnter={() => setIsHovered(true)}
-      onMouseLeave={() => setIsHovered(false)}
+      onDoubleClick={(e) => {
+        e.stopPropagation();
+        onDoubleClick?.();
+      }}
     >
-      {/* Icon Area — 32×32 with authentic Win95 selection metaphors */}
-      <div
-        className={cn(
-          "w-10 h-10 flex items-center justify-center relative",
-          isFlashing && "bg-[var(--win-highlight)]",
-          !isFlashing && active && "bg-[var(--win-select-bg)]",
-        )}
-        style={{
-          // Use dithered pattern for selection mask if possible, or solid navy for authenticity
-          backgroundColor: active && !isFlashing ? "var(--win-select-bg)" : undefined,
-        }}
-      >
+      {/* Icon tile — 32×32 with dithered selection wash when active */}
+      <div className="relative" style={{ width: 40, height: 40, display: "flex", alignItems: "center", justifyContent: "center" }}>
         <Win95Icon
           icon={icon}
           size={32}
-          className={cn(
-            "transition-transform duration-75",
-            isFlashing && "[filter:invert(1)]",
-            !isFlashing && active && "opacity-50 [filter:brightness(0.5)_sepia(1)_hue-rotate(190deg)_saturate(500%)]",
-          )}
+          className={cn(active && "opacity-60")}
         />
-        {/* Precise focus rectangle */}
-        {active && !isFlashing && (
-          <div className="absolute inset-0 border border-dotted border-white opacity-40 pointer-events-none" style={{ margin: "-1px" }} />
+        {active && (
+          <div
+            aria-hidden
+            className="absolute inset-0 pointer-events-none"
+            style={{
+              background: "var(--win-select-bg)",
+              opacity: 0.35,
+              mixBlendMode: "multiply",
+            }}
+          />
         )}
       </div>
 
-      {/* Label */}
+      {/* Label — canonical white-on-teal with 1px text shadow when unselected */}
       <div
-        className={cn(
-          "px-1 text-center break-words max-w-full text-white drop-shadow-[1px_1px_0_rgba(0,0,0,0.9)] transition-colors duration-75",
-          active && !isFlashing && "bg-[var(--win-select-bg)] text-white drop-shadow-none",
-          isFlashing && "bg-[var(--win-highlight)] text-black drop-shadow-none"
-        )}
-        style={{ 
-          fontFamily: "var(--font-shell)", 
-          fontSize: "11px", 
-          lineHeight: "1.2",
-          outline: active && !isFlashing ? "1px dotted white" : "none",
-          outlineOffset: -2
+        className="relative px-1 text-center break-words max-w-full"
+        style={{
+          fontFamily: "var(--font-shell)",
+          fontSize: 11,
+          lineHeight: 1.2,
+          color: active ? "var(--win-select-text)" : "var(--win-highlight)",
+          background: active ? "var(--win-select-bg)" : "transparent",
+          textShadow: active ? "none" : "1px 1px 0 rgba(0,0,0,0.9)",
+          outline: active ? "1px dotted var(--win-highlight)" : "none",
+          outlineOffset: -1,
         }}
       >
         {label}

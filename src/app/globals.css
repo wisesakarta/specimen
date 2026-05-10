@@ -486,3 +486,24 @@
     box-shadow: var(--bevel-sunken);
   }
 }
+
+/* ─────────────────────────────────────────────
+   WIN95 START MENU TYPOGRAPHY
+   Mnemonic letter underline follows canonical Win95 behavior:
+   1px solid underline tight against the baseline, inheriting
+   the current row color so selection inverts cleanly.
+   ───────────────────────────────────────────── */
+@layer components {
+  .start-menu-label u {
+    text-decoration-line: underline;
+    text-decoration-thickness: 1px;
+    text-underline-offset: 1px;
+    text-decoration-color: currentColor;
+  }
+
+  /* Win95 icon rendering — pixelated edges for bitmap authenticity.
+     No saturation filter needed; icons render at their native palette. */
+  .win95-icon-tune {
+    image-rendering: pixelated;
+  }
+}

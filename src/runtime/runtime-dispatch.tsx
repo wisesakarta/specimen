@@ -179,6 +179,7 @@ interface ManagedDispatchProps {
   onFocusWindow: (id: string) => void;
   onDataChange: (data: WindowData) => void;
   onActivityChange?: (state: RuntimeActivityState) => void;
+  onUpdateVFS?: (updater: (prev: VFSNode[]) => VFSNode[]) => void;
 }
 
 /**
@@ -194,7 +195,8 @@ export function DispatchManagedCitizen({
   onOpenNode,
   onFocusWindow,
   onDataChange,
-  onActivityChange
+  onActivityChange,
+  onUpdateVFS,
 }: ManagedDispatchProps) {
   switch (type) {
     case "EXPLORER":
@@ -207,6 +209,8 @@ export function DispatchManagedCitizen({
           onOpenNode={onOpenNode}
           onFocusWindow={onFocusWindow}
           onDataChange={onDataChange}
+          onActivityChange={onActivityChange}
+          onUpdateVFS={onUpdateVFS}
         />
       );
 

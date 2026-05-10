@@ -16,6 +16,16 @@ const SWISS_FORMAT_PRIORITY: Record<FontMetadata["format"], number> = {
   zip: 0
 };
 
+const SWISS_FOUNDATION_ORIGIN = "https://www.swisstypefaces.com";
+
+const normalizeSwissToken = (value: string): string => value.toLowerCase().replace(/[^a-z0-9]/g, "");
+
+const resolveAbsoluteSwissUrl = (candidate: string): string => {
+  if (/^https?:\/\//i.test(candidate)) return candidate;
+  if (candidate.startsWith("//")) return `https:${candidate}`;
+  return new URL(candidate, SWISS_FOUNDATION_ORIGIN).href;
+};
+
 const detectSwissFormat = (value: string): FontMetadata["format"] => {
   const lower = value.toLowerCase();
   if (lower.includes("woff2")) return "woff2";
@@ -62,6 +72,30 @@ const normalizeSwissStyleName = (value: string): string => {
   if (!label) return "Regular";
   if (/^regular italic$/i.test(label)) return "Italic";
   return label;
+};
+
+const extractTargetSwissFamilySlug = (url: string): string => {
+  const match = url.match(/\/fonts\/([^/?#]+)/i);
+  return match?.[1] ? normalizeSwissToken(match[1]) : "";
+};
+
+const isSwissFamilyMatch = (familyName: string, targetSlugToken: string): boolean => {
+  if (!targetSlugToken) return true;
+  const familyToken = normalizeSwissToken(familyName);
+  return familyToken.includes(targetSlugToken) || targetSlugToken.includes(familyToken);
+};
+
+const extractDeclaredSwissStyleCount = (html: string): number | undefined => {
+  const fullMatch = html.match(/(\d+)\s*subfamilies?\s*,\s*(\d+)\s*styles?/i);
+  if (fullMatch) {
+    const count = Number(fullMatch[2]);
+    return Number.isFinite(count) && count > 0 ? count : undefined;
+  }
+
+  const shortMatch = html.match(/(\d+)\s*styles?/i);
+  if (!shortMatch) return undefined;
+  const count = Number(shortMatch[1]);
+  return Number.isFinite(count) && count > 0 ? count : undefined;
 };
 
 const extractSwissPdfLinks = (html: string, pageUrl: string): string[] => {
@@ -113,6 +147,7 @@ export const SwissTypefacesScraper: Scraper = {
   async scrape(url: string): Promise<ScrapeResult> {
     try {
       const pageHtml = await fetchTextWithTimeout(url, 30000, BROWSER_HEADERS);
+      const declaredStyleCount = extractDeclaredSwissStyleCount(pageHtml);
       const specimenPdfUrls = extractSwissPdfLinks(pageHtml, url);
       const homeHtml = await fetchTextWithTimeout("https://www.swisstypefaces.com/", 30000, BROWSER_HEADERS);
       const cssMatch = homeHtml.match(/href="(\/css\/fonts\/[^"]*)"/);
@@ -123,16 +158,46 @@ export const SwissTypefacesScraper: Scraper = {
       }
 
       const cssContent = await fetchTextWithTimeout(cssUrl, 30000, BROWSER_HEADERS);
-      const fonts: FontMetadata[] = [];
       const expectedStyles = new Set<string>();
-      const blocks = cssContent.split("}");
-      const seenUrls = new Set<string>();
+      const stylesByUrl = new Map<string, FontMetadata>();
+      const targetFamilySlug = extractTargetSwissFamilySlug(url);
+      const blocks = cssContent.match(/@font-face\s*\{[^}]*\}/gi) || [];
 
-      let targetFamilySlug = "";
-      const urlMatch = url.match(/\/fonts\/([^/]+)/);
-      if (urlMatch && urlMatch[1]) {
-        targetFamilySlug = urlMatch[1].toLowerCase().replace(/-/g, "");
-      }
+      const registerCandidate = (candidateUrl: string, formatHint?: string) => {
+        let resolvedUrl = "";
+        try {
+          resolvedUrl = resolveAbsoluteSwissUrl(candidateUrl);
+        } catch {
+          return;
+        }
+
+        if (stylesByUrl.has(resolvedUrl)) return;
+        const descriptor = parseSwissAssetDescriptor(resolvedUrl);
+        if (!isSwissFamilyMatch(descriptor.family, targetFamilySlug)) return;
+
+        const format = detectSwissFormat(formatHint || resolvedUrl);
+        expectedStyles.add(descriptor.fullName);
+        stylesByUrl.set(resolvedUrl, {
+          url: resolvedUrl,
+          family: descriptor.family,
+          style: descriptor.style,
+          weight: descriptor.weight,
+          format,
+          downloadable: true,
+          note: "Swiss public runtime asset",
+          metadata: {
+            pageUrl: url,
+            foundry: "Swiss Typefaces",
+            family: descriptor.family,
+            styleName: descriptor.styleName,
+            fullName: descriptor.fullName,
+            format,
+            skipConversion: false,
+            forceMetadataRepair: true,
+            specimenPdfUrls
+          }
+        });
+      };
 
       for (const block of blocks) {
         if (!block.includes("@font-face")) continue;
@@ -145,51 +210,38 @@ export const SwissTypefacesScraper: Scraper = {
         if (!fontFamilyMatch || srcMatches.length === 0) continue;
 
         const fontFamily = fontFamilyMatch[1];
-        const familyLower = fontFamily.toLowerCase().replace(/[^a-z0-9]/g, "");
-        if (targetFamilySlug) {
-          if (!familyLower.includes(targetFamilySlug) && !targetFamilySlug.includes(familyLower)) {
-            continue;
-          }
-        }
+        if (!isSwissFamilyMatch(fontFamily, targetFamilySlug)) continue;
 
         let fullUrl = "";
-        let format: FontMetadata["format"] = "woff2";
+        let formatHint = "";
         let bestScore = -1;
         for (const match of srcMatches) {
-          const candidate = `https://www.swisstypefaces.com${match[1]}`;
+          const candidate = resolveAbsoluteSwissUrl(match[1]);
           const candidateFormat = detectSwissFormat(match[2] || match[1]);
           const candidateScore = SWISS_FORMAT_PRIORITY[candidateFormat];
           if (candidateScore > bestScore) {
             bestScore = candidateScore;
             fullUrl = candidate;
-            format = candidateFormat;
+            formatHint = match[2] || match[1];
           }
         }
 
-        if (!fullUrl || seenUrls.has(fullUrl)) continue;
-        seenUrls.add(fullUrl);
-
-        const descriptor = parseSwissAssetDescriptor(fullUrl);
-        expectedStyles.add(descriptor.fullName);
-        fonts.push({
-          url: fullUrl,
-          family: descriptor.family,
-          style: descriptor.style,
-          weight: descriptor.weight,
-          format,
-          downloadable: true,
-          note: "WebXL Quality",
-          metadata: {
-            pageUrl: url,
-            foundry: "Swiss Typefaces",
-            family: descriptor.family,
-            styleName: descriptor.styleName,
-            fullName: descriptor.fullName,
-            forceMetadataRepair: true,
-            specimenPdfUrls
-          }
-        });
+        if (fullUrl) registerCandidate(fullUrl, formatHint);
       }
+
+      for (const hit of pageHtml.matchAll(/(?:https?:\/\/|\/)[^"'<>\s]+\.(?:woff2?|ttf|otf)(?:\?[^"'<>\s]*)?/gi)) {
+        const raw = String(hit[0] || "").trim();
+        if (!raw) continue;
+        registerCandidate(raw);
+      }
+
+      const fonts = Array.from(stylesByUrl.values());
+      const resolvedExpectedCount =
+        declaredStyleCount && declaredStyleCount > 0
+          ? declaredStyleCount
+          : expectedStyles.size > 0
+            ? expectedStyles.size
+            : undefined;
 
       return {
         scraperName: "SwissTypefacesScraper",
@@ -197,16 +249,20 @@ export const SwissTypefacesScraper: Scraper = {
         fonts,
         originalUrl: url,
         targetUrl: url,
+        expectedCount: resolvedExpectedCount,
         metadata: {
           targetProfile: {
-            profileId: "swisstypefaces-target-profile-v2",
+            profileId: "swisstypefaces-target-profile-v3",
             foundry: "Swiss Typefaces",
             familyDisplay: targetFamilySlug ? formatSwissSlugDisplay(targetFamilySlug) : "Swiss Typefaces",
             styleScope: "family-style",
             expectedStyles: Array.from(expectedStyles),
+            failOnTrialAssets: true,
+            minCmapEntries: 300,
+            minFeatureCount: 4,
             specimenPdfUrls,
             source: "www.swisstypefaces.com",
-            strictMissingStyles: false
+            strictMissingStyles: true
           }
         }
       };
