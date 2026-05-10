@@ -296,10 +296,13 @@ export default function Notepad({
       {/* Editor Area */}
       <textarea
         ref={textareaRef}
-        className="flex-1 w-full p-1 font-mono text-[13px] leading-tight outline-none resize-none border-0 cursor-text scrollbar-win95"
+        className="flex-1 w-full p-1 outline-none resize-none border-0 cursor-text scrollbar-win95"
         style={{
           backgroundColor: "var(--win-window)",
           color: "var(--win-text)",
+          fontFamily: "var(--font-shell)",
+          fontSize: 12,
+          lineHeight: 1.35,
           whiteSpace: wordWrap ? 'pre-wrap' : 'pre',
           overflowX: wordWrap ? 'hidden' : 'auto',
           overflowY: 'scroll',
@@ -314,20 +317,34 @@ export default function Notepad({
         autoFocus
       />
 
-      {/* Status Bar */}
-      <div className="flex items-center px-1 py-0.5 border-t border-[var(--win-shadow)] bg-[var(--win-face)] text-[10px] select-none h-5 gap-1" style={{ fontFamily: "var(--font-shell)" }}>
-        <div className="flex-1 px-2 h-4 flex items-center shadow-[var(--bevel-sunken)] bg-[var(--win-face)]">
-          {isSaving ? (
-            <span className="text-[var(--win-dk-shadow)] font-bold animate-pulse">Saving...</span>
-          ) : (
-            <span className="opacity-60">Ready</span>
-          )}
+      {/* Status Bar — canonical Win95 sunken panels */}
+      <div
+        className="flex items-center border-t select-none"
+        style={{
+          borderTopColor: "var(--win-shadow)",
+          background: "var(--win-face)",
+          fontFamily: "var(--font-shell)",
+          fontSize: 11,
+          height: 20,
+          gap: 2,
+          padding: "1px 2px",
+        }}
+      >
+        <div
+          className="flex-1 px-2 flex items-center"
+          style={{ boxShadow: "var(--bevel-sunken)", height: 16 }}
+        >
+          <span style={{ color: isSaving ? "var(--win-text)" : "var(--win-text-muted)" }}>
+            {isSaving ? "Saving..." : "Ready"}
+          </span>
         </div>
-        <div className="w-28 px-2 h-4 flex items-center shadow-[var(--bevel-sunken)] bg-[var(--win-face)]">
-          <span className="opacity-60 tabular-nums">Ln {cursorPos.line}, Col {cursorPos.col}</span>
-        </div>
-        <div className="w-20 px-2 h-4 flex items-center shadow-[var(--bevel-sunken)] bg-[var(--win-face)]">
-          <span className="opacity-30 tracking-tighter uppercase text-[8px] font-bold">SOVEREIGN</span>
+        <div
+          className="px-2 flex items-center tabular-nums"
+          style={{ boxShadow: "var(--bevel-sunken)", height: 16, width: 120 }}
+        >
+          <span style={{ color: "var(--win-text-muted)" }}>
+            Ln {cursorPos.line}, Col {cursorPos.col}
+          </span>
         </div>
       </div>
 
@@ -340,20 +357,52 @@ export default function Notepad({
       />
 
       {isAboutOpen && (
-        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-[200] w-[300px] bg-[var(--win-face)] shadow-[var(--bevel-raised)] border border-[var(--win-dk-shadow)] p-[2px]">
-          <div className="flex items-center justify-between bg-[var(--win-title-active)] text-white px-1 h-[18px]">
-            <span className="text-[11px] font-bold">About Notepad</span>
-            <button className="win-ctrl-btn w-3.5 h-3.5 !bg-[var(--win-face)] !text-black" onClick={() => setIsAboutOpen(false)}>×</button>
-          </div>
-          <div className="p-4 flex gap-4 items-start">
-            <Win95Icon icon="📝" size={32} />
-            <div className="flex flex-col text-[11px]">
-              <span className="font-bold">Specimen Notepad</span>
-              <span>Version 2.1.0 (Build 950)</span>
-              <span className="mt-2 text-black/60">Copyright © 1995-2026 Technical Standard. All rights reserved.</span>
-              <div className="mt-4 flex justify-end">
-                <button className="win-btn !min-w-[60px]" onClick={() => setIsAboutOpen(false)}>OK</button>
+        <div className="absolute inset-0 z-[200] flex items-center justify-center" style={{ background: "rgba(0,0,0,0.15)" }}>
+          <div
+            className="flex flex-col"
+            style={{
+              width: 320,
+              background: "var(--win-face)",
+              boxShadow: "var(--bevel-raised)",
+              border: "1px solid var(--win-dk-shadow)",
+              fontFamily: "var(--font-shell)",
+            }}
+          >
+            <div
+              className="flex items-center justify-between px-1 select-none"
+              style={{
+                height: "var(--win-titlebar-height)",
+                background: "var(--win-title-active)",
+                color: "var(--win-title-text)",
+              }}
+            >
+              <span style={{ fontSize: 11, fontWeight: 700, paddingLeft: 4 }}>About Notepad</span>
+              <button
+                type="button"
+                className="win-ctrl-btn"
+                onClick={() => setIsAboutOpen(false)}
+                aria-label="Close"
+              >
+                <svg width="7" height="7" viewBox="0 0 7 7" style={{ display: "block", shapeRendering: "crispEdges" }}>
+                  <line x1="0" y1="0" x2="7" y2="7" stroke="currentColor" strokeWidth="1.5" />
+                  <line x1="7" y1="0" x2="0" y2="7" stroke="currentColor" strokeWidth="1.5" />
+                </svg>
+              </button>
+            </div>
+            <div className="flex gap-4 p-4">
+              <Win95Icon icon="📝" size={32} />
+              <div className="flex flex-col gap-1" style={{ fontSize: 12, color: "var(--win-text)" }}>
+                <span style={{ fontWeight: 700 }}>Specimen Notepad</span>
+                <span>Version 2.1.0 (Build 950)</span>
+                <span style={{ marginTop: 8, color: "var(--win-text-muted)" }}>
+                  Copyright &copy; 1995-2026 Technical Standard.
+                </span>
               </div>
+            </div>
+            <div className="flex justify-end px-4 pb-4">
+              <button type="button" className="win-btn" onClick={() => setIsAboutOpen(false)}>
+                OK
+              </button>
             </div>
           </div>
         </div>

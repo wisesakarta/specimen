@@ -14,7 +14,7 @@
 import type { AppType, VFSNode, WindowData } from "@/lib/os-config";
 import type { RuntimeConstitution } from "@/lib/runtime";
 
-export const SESSION_KEY = "specimen-session-v2";
+export const SESSION_KEY = "specimen-session-v3";
 
 export interface PersistedRecent {
   id: string;
@@ -48,7 +48,7 @@ export interface PersistedWindow {
 }
 
 export interface SessionSnapshot {
-  version: 2;
+  version: 3;
   windows: PersistedWindow[];
   recents?: PersistedRecent[];
   vfsNodes?: VFSNode[];
@@ -61,7 +61,7 @@ export function loadSnapshot(): SessionSnapshot | null {
     if (!raw) return null;
     const parsed = JSON.parse(raw) as unknown;
     if (typeof parsed !== "object" || parsed === null) return null;
-    if ((parsed as { version?: unknown }).version !== 2) return null;
+    if ((parsed as { version?: unknown }).version !== 3) return null;
     return parsed as SessionSnapshot;
   } catch {
     return null;

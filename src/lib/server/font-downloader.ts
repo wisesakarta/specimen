@@ -199,9 +199,8 @@ const extractDirectFontsFromBrowserRequest = (
 
 const toSafeSegment = (value: string): string => {
   const normalized = value
-    .toLowerCase()
     .trim()
-    .replace(/[^a-z0-9-]+/g, "-")
+    .replace(/[^a-zA-Z0-9-]+/g, "-")
     .replace(/^-+|-+$/g, "");
 
   return normalized || "job";
@@ -210,8 +209,7 @@ const toSafeSegment = (value: string): string => {
 const toSafeOutputFolderPath = (value: string): string => {
   const sanitizePart = (part: string): string => {
     const normalized = part
-      .toLowerCase()
-      .replace(/[^a-z0-9._-]+/g, "-")
+      .replace(/[^a-zA-Z0-9._-]+/g, "-")
       .replace(/-+/g, "-")
       .replace(/^-+|-+$/g, "");
     return normalized || "job";
@@ -227,10 +225,10 @@ const toSafeOutputFolderPath = (value: string): string => {
 
 const toSafeFileName = (value: string): string => {
   const cleaned = value
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "");
-  const clamped = cleaned.slice(0, 140).replace(/-+$/g, "");
+    .replace(/[^a-zA-Z0-9 _-]+/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+  const clamped = cleaned.slice(0, 140).trim();
   return clamped || "font-file";
 };
 
@@ -826,9 +824,24 @@ const deriveFoundryToken = (metadata?: any): string | undefined => {
   return undefined;
 };
 
+const toDisplayToken = (value: string | undefined): string | undefined => {
+  if (!value) return undefined;
+  const normalized = value
+    .trim()
+    .replace(/\s+/g, "_")
+    .replace(/[^a-zA-Z0-9_\-.]/g, "")
+    .replace(/_+/g, "_")
+    .replace(/^_+|_+$/g, "");
+  return normalized.length > 80 ? normalized.slice(0, 80) : (normalized || undefined);
+};
+
 const makeJobFolder = (outputFolder?: string, metadata?: any): string => {
-  // Use downloads root for explicit output folders, otherwise keep transient staging flow.
-  const root = outputFolder ? path.join(baseDownloadRoot, toSafeOutputFolderPath(outputFolder)) : stagingRoot;
+  // If explicitly given, trust it
+  if (outputFolder && outputFolder.trim() !== "") {
+    return path.join(baseDownloadRoot, toSafeOutputFolderPath(outputFolder));
+  }
+
+  const root = baseDownloadRoot;
   const finalize = (candidate: string): string => candidate;
 
   const deriveFromFonts = (): { foundry?: string; family?: string; category?: string } => {
@@ -845,34 +858,32 @@ const makeJobFolder = (outputFolder?: string, metadata?: any): string => {
   };
 
   const derived = deriveFromFonts();
-  const foundry = metadata?.foundry || metadata?.metadata?.foundry || derived.foundry;
-  const family = metadata?.family || metadata?.metadata?.family || derived.family;
-  const category = metadata?.category || metadata?.metadata?.category || derived.category;
+  const foundryRaw = metadata?.foundry || metadata?.metadata?.foundry || derived.foundry;
+  const familyRaw = metadata?.family || metadata?.metadata?.family || derived.family;
+  const categoryRaw = metadata?.category || metadata?.metadata?.category || derived.category;
+
+  const foundry = toDisplayToken(foundryRaw);
+  const family = toDisplayToken(familyRaw);
+  const category = toDisplayToken(categoryRaw);
 
   if (foundry && family) {
-    const foundrySegment = toSafeSegment(foundry);
-    const familySegment = toSafeSegment(family);
-    const segments = [root, foundrySegment];
-    if (familySegment !== foundrySegment) {
-      segments.push(familySegment);
+    let base = `${foundry}_-_${family}`;
+    if (category && category !== family) {
+      base = `${base}_-_${category}`;
     }
-    // Add category sub-folder when category differs from family.
-    if (category && toSafeSegment(category) !== familySegment) {
-      segments.push(toSafeSegment(category));
-    }
-    return finalize(path.join(...segments));
+    return finalize(path.join(root, base));
   }
 
-  const foundryToken = foundry ? toSafeSegment(foundry) : deriveFoundryToken(metadata);
+  const foundryToken = foundry || deriveFoundryToken(metadata);
   if (foundryToken) {
-    return finalize(path.join(root, `${foundryToken}-fonts`));
+    return finalize(path.join(root, `${toDisplayToken(foundryToken)}_-_Fonts`));
   }
 
   if (family) {
-    return finalize(path.join(root, `${toSafeSegment(family)}-fonts`));
+    return finalize(path.join(root, `${family}_-_Fonts`));
   }
 
-  return finalize(path.join(root, "unknown-fonts"));
+  return finalize(path.join(root, "Unknown_-_Fonts"));
 };
 
 const toRelative = (absolutePath: string): string => path.relative(process.cwd(), absolutePath);

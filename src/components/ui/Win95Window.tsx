@@ -51,30 +51,19 @@ interface Win95WindowProps {
   y?: number | string;
 }
 
-/* Win95 window restoration materiality — Weighted & Emergent */
+/* Win95 window appearance — instant materialization per AGENTS.md Section XVI.2 */
 const windowVariants: Variants = {
-  hidden: { 
+  hidden: {
     opacity: 0,
-    scale: 0.995,
-    filter: "brightness(0.8) contrast(1.2)",
   },
   visible: {
     opacity: 1,
-    scale: 1,
-    filter: [
-      "brightness(1.5) contrast(1.5)", // Momentary phosphor flare
-      "brightness(1) contrast(1)"
-    ],
-    transition: { 
-      duration: 0.15, // Weighted entry
-      ease: [0.2, 0, 0, 1], 
-      filter: { duration: 0.1, times: [0, 1] }
+    transition: {
+      duration: 0,
     },
   },
   exit: {
     opacity: 0,
-    scale: 0.995,
-    filter: "brightness(0.9)",
     transition: { duration: 0.08, ease: "linear" },
   },
 };

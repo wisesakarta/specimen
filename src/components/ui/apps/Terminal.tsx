@@ -8,9 +8,18 @@ import type { SovereignRuntimeProps } from "@/runtime/runtime-dispatch";
 import type { VFSNode } from "@/lib/os-config";
 import { cn } from "@/lib/style-composer";
 
-const SYSTEM_IDENTIFICATION_STRING = process.env.NEXT_PUBLIC_APP_ENV === "production" 
-  ? `Specimen Runtime Environment Version ${process.env.NEXT_PUBLIC_APP_VERSION || "0.1.5"}`
-  : `Specimen Runtime Environment [Development] Version ${process.env.NEXT_PUBLIC_APP_VERSION || "0.1.5"} (Build ${process.env.NEXT_PUBLIC_APP_BUILD || "2026.05.09"})`;
+const SPECIMEN_MSDOS_BANNER = [
+  "Specimen(R) Windows 95",
+  "(C) Copyright Technical Standard 1995-2026.",
+].join("\r\n");
+
+const SPECIMEN_MSDOS_BANNER_DEV =
+  `${SPECIMEN_MSDOS_BANNER}\r\n[Development build ${process.env.NEXT_PUBLIC_APP_BUILD || "unknown"}]`;
+
+const SYSTEM_IDENTIFICATION_STRING =
+  process.env.NEXT_PUBLIC_APP_ENV === "production"
+    ? SPECIMEN_MSDOS_BANNER
+    : SPECIMEN_MSDOS_BANNER_DEV;
 const COMMAND_HISTORY_PERSISTENCE_KEY = "specimen_terminal_history";
 
 /**
@@ -433,7 +442,7 @@ export default function TerminalApp({
         cursor: "#C0C0C0",
         selectionBackground: "rgba(192, 192, 192, 0.3)",
       },
-      fontFamily: "Departure Mono, Courier New, monospace",
+      fontFamily: "W95FA, 'MS Sans Serif', Tahoma, monospace",
       fontSize: 14,
       lineHeight: 1.2,
       scrollback: 1000,

@@ -58,7 +58,7 @@ export default function Win95AnalysisDashboard({
       style={{ bottom: 28 }} // Offset for desktop taskbar
     >
       <Win95Window
-        title={`${result.foundryName ?? "Foundry"} — Specimen Analyzer`}
+        title={`${result.foundryName ?? "Foundry"} — Specimen`}
         icon="🔍"
         active={isActive}
         onClose={onReset}

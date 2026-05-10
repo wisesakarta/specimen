@@ -56,9 +56,13 @@ export interface VFSNode {
   type: "file" | "folder";
   icon: string;
   appType?: AppType;
-  content?: string; // For text files
-  children?: VFSNode[]; // For folders
+  content?: string;
+  children?: VFSNode[];
   metadata?: any;
+  /** Unix timestamp (ms) when this node was last modified. */
+  modifiedAt?: number;
+  /** Unix timestamp (ms) when this node was created. */
+  createdAt?: number;
 }
 
 export type WindowData = 

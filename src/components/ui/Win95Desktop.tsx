@@ -135,7 +135,8 @@ const ManagedWindowRuntime = ({
   runtimeSnapshots,
   onOpenNode,
   onFocusWindow,
-  updateWindowState
+  updateWindowState,
+  onUpdateVFS,
 }: {
   win: WindowState;
   vfs: VFSNode[];
@@ -144,6 +145,7 @@ const ManagedWindowRuntime = ({
   onOpenNode: (node: VFSNode) => void;
   onFocusWindow: (id: string) => void;
   updateWindowState: (id: string, patch: Partial<WindowState>) => void;
+  onUpdateVFS: React.Dispatch<React.SetStateAction<VFSNode[]>>;
 }) => {
   const onDataChange = useCallback((data: WindowData) => {
     updateWindowState(win.id, { data });
@@ -165,6 +167,7 @@ const ManagedWindowRuntime = ({
       onFocusWindow={onFocusWindow}
       onDataChange={onDataChange}
       onActivityChange={onActivityChange}
+      onUpdateVFS={onUpdateVFS}
     />
   );
 };
@@ -244,7 +247,7 @@ export default function Win95Desktop({
   // Sync isSpecimenOpen with window manager (only for opening; closing is handled via onCloseSpecimen)
   useEffect(() => {
     if (isSpecimenOpen && !windows.some(w => w.id === SPECIMEN_ID)) {
-      openWindow(SPECIMEN_ID, "SPECIMEN", "Specimen Analyzer", "🔍", null);
+      openWindow(SPECIMEN_ID, "SPECIMEN", "Specimen", "🔍", null);
     }
   }, [isSpecimenOpen, windows, openWindow]);
 
@@ -278,21 +281,54 @@ export default function Win95Desktop({
     checkMobile();
     window.addEventListener("resize", checkMobile);
 
+    // Escape key closes Start menu (canonical Win95 behavior)
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        setIsStartMenuOpen(false);
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+
     const timer = setInterval(() => setCurrentTime(new Date()), 1000);
     return () => {
       window.removeEventListener("resize", checkMobile);
+      window.removeEventListener("keydown", handleKeyDown);
       clearInterval(timer);
     };
   }, []);
 
+  // Start menu mnemonic keys — when menu is open, letter keys activate items
+  useEffect(() => {
+    if (!isStartMenuOpen) return;
+    const handleMnemonic = (e: KeyboardEvent) => {
+      const key = e.key.toLowerCase();
+      if (key === "p") { /* Programs — submenu, no direct action */ }
+      else if (key === "d") { /* Documents — submenu, no direct action */ }
+      else if (key === "s") { /* Settings — submenu, no direct action */ }
+      else if (key === "f") { /* Find — submenu, no direct action */ }
+      else if (key === "h") { /* Help — disabled */ }
+      else if (key === "r") { setIsStartMenuOpen(false); onOpenSpecimen(); }
+      else if (key === "u") { setIsStartMenuOpen(false); setIsShutdownDialogOpen(true); }
+    };
+    window.addEventListener("keydown", handleMnemonic);
+    return () => window.removeEventListener("keydown", handleMnemonic);
+  }, [isStartMenuOpen]);
+
   const handleOpenApp = useCallback((type: AppType, title?: string, icon?: string, data?: WindowData) => {
     setIsStartMenuOpen(false);
-    // Generate a reasonably unique ID for procedural spawning
-    const id = `${type.toLowerCase()}-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
-    
+
     // Icon Authority: Use provided icon, or registry default, or generic fallback
     const finalIcon = icon || SOVEREIGN_REGISTRY[type]?.defaultIcon || "⚙️";
     const finalTitle = title || type;
+
+    // Singleton citizens (no document payload) use a deterministic shared id
+    // so re-launching from the Start menu focuses the existing instance
+    // rather than spawning a duplicate — canonical Win95 shell behavior.
+    const singletonTypes: AppType[] = ["TERMINAL", "WEBAMP", "BROWSER", "MONACO_EDITOR"];
+    const isSingleton = singletonTypes.includes(type) && data === undefined;
+    const id = isSingleton
+      ? `${type.toLowerCase()}-singleton`
+      : `${type.toLowerCase()}-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
 
     openWindow(id, type, finalTitle, finalIcon, data);
   }, [openWindow]);
@@ -308,7 +344,7 @@ export default function Win95Desktop({
     } else if (node.appType) {
       if (node.appType === "SPECIMEN") {
         onOpenSpecimen();
-        openWindow(SPECIMEN_ID, "SPECIMEN", "Specimen Analyzer", "🔍", null);
+        openWindow(SPECIMEN_ID, "SPECIMEN", "Specimen", "🔍", null);
       } else {
         openWindow(node.id, node.appType, node.name, node.icon, node.content || node);
       }
@@ -369,7 +405,7 @@ export default function Win95Desktop({
         {/* Window Management Layer: Zero-padding, absolute positioning */}
         <div className="absolute inset-0 pointer-events-none z-10">
         <AnimatePresence>
-          {bootStatus === "ready" && !isShuttingDown && windows.map((win, i) => {
+          {bootStatus === "ready" && !isShuttingDown && windows.map((win) => {
             const lifecycle = getLifecycleState(win);
             if (lifecycle === "closed") return null;
 
@@ -540,7 +576,7 @@ export default function Win95Desktop({
                 key={win.id}
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}
-                transition={{ duration: 0.1, delay: i * 0.05 }}
+                transition={{ duration: 0, ease: "linear" }}
                 className="contents"
               >
                 <Win95Window
@@ -601,6 +637,7 @@ export default function Win95Desktop({
                     onOpenNode={handleOpenNode}
                     onFocusWindow={focusWindow}
                     updateWindowState={updateWindowState}
+                    onUpdateVFS={setVfs}
                   />
                 </Win95Window>
               </motion.div>
@@ -614,67 +651,165 @@ export default function Win95Desktop({
       <AnimatePresence>
         {isStartMenuOpen && (
           <motion.div
-            initial={{ opacity: 0, y: 10 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: 10 }}
-            transition={{ duration: 0.1, ease: "linear" }}
-            className="absolute left-1 flex z-[2001] w-56"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.05, ease: "linear" }}
+            className="absolute left-1 flex z-[2001]"
             style={{
-              bottom: "calc(var(--win-taskbar-height) + 4px)",
+              bottom: "calc(var(--win-taskbar-height) + 2px)",
+              width: 220,
+              padding: 3,
               background: "var(--win-face)",
               boxShadow: "var(--bevel-raised)",
-              border: "1px solid var(--win-dk-shadow)",
+              fontFamily: "var(--font-win95-chrome)",
+              fontSize: "var(--win-font-size)",
             }}
           >
+            {/* Sidebar banner — canonical Win95 vertical brand stripe.
+                Width holds rotated glyph column fully inside the panel. */}
             <div
-              className="w-8 relative flex-shrink-0 select-none overflow-hidden"
+              className="relative flex-shrink-0 select-none"
               style={{
-                background: "linear-gradient(to bottom, var(--win-shadow), var(--win-title-active))",
+                width: 24,
+                alignSelf: "stretch",
+                background: "var(--win-title-inactive)",
               }}
             >
-              <span
-                className="absolute bottom-6 left-1/2 -rotate-90 origin-left whitespace-nowrap text-white font-bold"
+              <div
+                className="absolute"
                 style={{
-                  fontSize: 14,
-                  letterSpacing: "1px",
-                  textShadow: "1px 1px 0 rgba(0,0,0,0.5)",
+                  top: 0,
+                  bottom: 0,
+                  left: 0,
+                  right: 0,
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  writingMode: "vertical-rl",
+                  transform: "rotate(180deg)",
+                  whiteSpace: "nowrap",
+                  lineHeight: 1,
+                  padding: "6px 0",
                 }}
               >
-                Specimen <span className="font-normal opacity-70">OS</span>
-              </span>
+                <span
+                  style={{
+                    fontFamily: "var(--font-win95-chrome)",
+                    fontSize: 18,
+                    fontWeight: 700,
+                    fontStyle: "italic",
+                    color: "var(--win-face-light)",
+                    letterSpacing: "-0.02em",
+                    textShadow: "1px 1px 0 var(--win-dk-shadow)",
+                  }}
+                >
+                  Specimen
+                </span>
+                <span
+                  style={{
+                    fontFamily: "var(--font-win95-chrome)",
+                    fontSize: 18,
+                    fontWeight: 700,
+                    color: "var(--win-highlight)",
+                    marginTop: 3,
+                    letterSpacing: "-0.02em",
+                    textShadow: "1px 1px 0 var(--win-dk-shadow)",
+                  }}
+                >
+                  95
+                </span>
+              </div>
             </div>
 
-            {/* Start Menu Items */}
-            <div className="flex-1 flex flex-col py-1 win-stagger">
-              <StartMenuItem icon="FileFind_16x16_4.png" label="Specimen Analyzer" onClick={onOpenSpecimen} />
-              <StartMenuItem icon="⌨️" label="MS-DOS Prompt" onClick={() => handleOpenApp("TERMINAL", "MS-DOS Prompt")} />
-              <StartMenuItem icon="Computer_16x16_4.png" label="My Computer" onClick={() => handleOpenNode(vfs.find(n => n.id === "desktop-mycomputer")!)} />
-              <StartMenuItem icon="Globe_16x16_4.png" label="Internet Explorer" onClick={() => handleOpenApp("BROWSER", "Internet Explorer")} />
-              <StartMenuItem icon="Folder_16x16_4.png" label="My Documents" onClick={() => handleOpenNode(vfs.find(n => n.name === "My Documents")!)} />
-              <StartMenuItem icon="Mmsys100_16x16_4.png" label="Winamp" onClick={() => handleOpenApp("WEBAMP", "Winamp")} />
-               <StartMenuItem icon="📄" label={(() => {
-                 const win = windows.find(w => w.type === "NOTEPAD");
-                 const sub = win ? resolveRuntimeSubtitle(win) : undefined;
-                 const displaySub = sub ? (sub.length > 16 ? sub.slice(0, 16) + "..." : sub) : undefined;
-                 return displaySub ? `Notepad (${displaySub})` : "Notepad";
-               })()} onClick={() => handleOpenApp("NOTEPAD", "Notepad")} />
-               <StartMenuItem icon="📝" label={(() => {
-                 const win = windows.find(w => w.type === "MONACO_EDITOR");
-                 const sub = win ? resolveRuntimeSubtitle(win) : undefined;
-                 const displaySub = sub ? (sub.length > 16 ? sub.slice(0, 16) + "..." : sub) : undefined;
-                 return displaySub ? `Monaco (${displaySub})` : "Monaco Editor";
-               })()} onClick={() => handleOpenApp("MONACO_EDITOR", "Monaco Editor")} />
-               <StartMenuItem icon="🎨" label={(() => {
-                 const win = windows.find(w => w.type === "JSPAINT");
-                 const sub = win?.activity?.subtitle;
-                 const displaySub = sub ? (sub.length > 16 ? sub.slice(0, 16) + "..." : sub) : undefined;
-                 return displaySub ? `Paint (${displaySub})` : "Paint";
-               })()} onClick={() => handleOpenApp("JSPAINT", "Paint")} />
-              <StartMenuItem icon="FolderOpen_16x16_4.png" label="Recent Items" onClick={() => handleOpenNode({ id: "__recents__", name: "Recent Items", type: "folder", icon: "📂" })} />
-              <StartMenuItem icon="RecycleEmpty_16x16_4.png" label="Shut Down..." onClick={() => {
-                setIsStartMenuOpen(false);
-                setIsShutdownDialogOpen(true);
-              }} />
+            {/* Start Menu Items — authentic Win95 shell32.dll icons */}
+            <div className="flex-1 flex flex-col overflow-visible relative" style={{ marginLeft: 1 }}>
+              <StartMenuItem 
+                icon="start-programs-32x32.png" 
+                label="<u>P</u>rograms" 
+                large
+                children={[
+                  {
+                    icon: "Folder_16x16_4.png",
+                    label: "Accessories",
+                    children: [
+                      { icon: "Notepad_16x16_4.png",              label: "Notepad",          onClick: () => handleOpenApp("NOTEPAD", "Notepad") },
+                      { icon: "Mspaint_16x16_4.png",              label: "Paint",            onClick: () => handleOpenApp("JSPAINT", "Paint") },
+                      { icon: "MonacoEditor_16x16.png",           label: "Monaco Editor",    onClick: () => handleOpenApp("MONACO_EDITOR", "Monaco Editor") },
+                      { icon: "WindowsExplorer_16x16_4.png",      label: "Windows Explorer", onClick: () => handleOpenApp("EXPLORER", "Explorer") },
+                    ],
+                  },
+                  {
+                    icon: "Folder_16x16_4.png",
+                    label: "StartUp",
+                    children: [],
+                  },
+                  { icon: "Specimen_16x16.png",                   label: "Specimen",         onClick: () => { setIsStartMenuOpen(false); onOpenSpecimen(); } },
+                  { icon: "MsDos_16x16_32.png",                   label: "MS-DOS Prompt",    onClick: () => handleOpenApp("TERMINAL", "MS-DOS Prompt") },
+                  { icon: "WindowsExplorer_16x16_4.png",          label: "Windows Explorer", onClick: () => handleOpenApp("EXPLORER", "Explorer") },
+                ]}
+              />
+              <StartMenuItem 
+                icon="start-documents-32x32.png" 
+                label="<u>D</u>ocuments" 
+                large
+                children={(() => {
+                  const seen = new Set<string>();
+                  const unique = recents.filter((r) => {
+                    const key = `${r.type}::${r.title}`;
+                    if (seen.has(key)) return false;
+                    seen.add(key);
+                    return true;
+                  });
+                  return unique.length === 0
+                    ? []
+                    : unique.slice(0, 15).map((r) => ({
+                        icon: "FileText_16x16_4.png",
+                        label: r.title,
+                        onClick: () => handleOpenApp(r.type, r.title, r.icon, r.data),
+                      }));
+                })()}
+              />
+              <StartMenuItem 
+                icon="start-settings-32x32.png" 
+                label="<u>S</u>ettings" 
+                large
+                children={[
+                  { icon: "Computer_16x16_4.png", label: "Control Panel", disabled: true },
+                  { icon: "Folder_16x16_4.png", label: "Taskbar...",      disabled: true },
+                ]}
+              />
+              <StartMenuItem 
+                icon="start-find-32x32.png" 
+                label="<u>F</u>ind" 
+                large
+                children={[
+                  { icon: "WindowsExplorer_16x16_4.png", label: "Files or Folders...", onClick: () => handleOpenApp("EXPLORER", "Find") },
+                ]}
+              />
+              <StartMenuItem icon="start-help-32x32.png" label="<u>H</u>elp" large disabled />
+              <StartMenuItem
+                icon="start-run-32x32.png"
+                label="<u>R</u>un..."
+                large
+                onClick={() => { setIsStartMenuOpen(false); onOpenSpecimen(); }}
+              />
+
+              {/* Canonical ridge divider */}
+              <div aria-hidden className="flex flex-col" style={{ margin: "3px 0" }}>
+                <div style={{ height: 1, background: "var(--win-shadow)" }} />
+                <div style={{ height: 1, background: "var(--win-highlight)" }} />
+              </div>
+
+              <StartMenuItem 
+                icon="start-shutdown-32x32.png" 
+                label="Sh<u>u</u>t Down..." 
+                large 
+                onClick={() => {
+                  setIsStartMenuOpen(false);
+                  setIsShutdownDialogOpen(true);
+                }} 
+              />
             </div>
           </motion.div>
         )}
@@ -698,12 +833,13 @@ export default function Win95Desktop({
                 setIsStartMenuOpen(!isStartMenuOpen);
               }}
             >
-              <svg width="13" height="13" viewBox="0 0 13 13" style={{ display: "block", imageRendering: "pixelated", flexShrink: 0 }}>
-                <rect x="0" y="0" width="5" height="5" fill="#ff0000" />
-                <rect x="7" y="0" width="5" height="5" fill="#00a000" />
-                <rect x="0" y="7" width="5" height="5" fill="#0000ff" />
-                <rect x="7" y="7" width="5" height="5" fill="#ffff00" />
-              </svg>
+              <img
+                src="/win95-icons/start.png"
+                width={16}
+                height={14}
+                alt=""
+                style={{ imageRendering: "pixelated", display: "block", flexShrink: 0 }}
+              />
               <span className="text-[11px] leading-none font-bold">Start</span>
             </button>
           </div>
@@ -860,33 +996,168 @@ function TaskbarPill({
   );
 }
 
-function StartMenuItem({ icon, label, onClick }: { icon: string; label: string; onClick?: () => void }) {
+/**
+ * StartMenuItem shape — shared by main-column rows and submenus.
+ * `children: []` is a semantically meaningful empty group and renders a
+ * canonical "(Empty)" placeholder row (matches Win95 shell behavior when
+ * a user group like StartUp contains no programs).
+ */
+export interface StartMenuItemShape {
+  icon: string;
+  label: string;
+  onClick?: () => void;
+  disabled?: boolean;
+  children?: StartMenuItemShape[];
+}
+
+function StartMenuItem({
+  icon,
+  label,
+  onClick,
+  large,
+  disabled,
+  children,
+}: {
+  icon: string;
+  label: string;
+  onClick?: () => void;
+  large?: boolean;
+  disabled?: boolean;
+  children?: StartMenuItemShape[];
+}) {
   const [active, setActive] = useState(false);
+  const [showSubmenu, setShowSubmenu] = useState(false);
+  const timeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const hasSubmenu = Array.isArray(children);
+
+  const handleMouseEnter = () => {
+    if (disabled) return;
+    setActive(true);
+    if (hasSubmenu) {
+      if (timeoutRef.current) clearTimeout(timeoutRef.current);
+      timeoutRef.current = setTimeout(() => setShowSubmenu(true), 300);
+    }
+  };
+
+  const handleMouseLeave = () => {
+    setActive(false);
+    if (hasSubmenu) {
+      if (timeoutRef.current) clearTimeout(timeoutRef.current);
+      timeoutRef.current = setTimeout(() => setShowSubmenu(false), 300);
+    }
+  };
+
+  const iconSize = large ? 32 : 16;
+  // Canonical Win95 Start menu rhythm: 32px row for 32px icons (1:1 grid),
+  // 20px row for 16px icons in submenus (1:1.25 grid).
+  const rowHeight = large ? 32 : 20;
+
+  // Disabled rows render label only in --win-shadow with the classic Win95
+  // embossed fallback (1px highlight drop shadow). No selection background.
+  const resolvedBg = disabled ? "transparent" : active ? "var(--win-select-bg)" : "transparent";
+  const resolvedColor = disabled
+    ? "var(--win-shadow)"
+    : active
+      ? "var(--win-select-text)"
+      : "var(--win-text)";
 
   return (
-    <button
-      className={cn(
-        "flex items-center gap-2 px-2 py-[2px] hover:bg-[var(--win-select-bg)] hover:text-white text-left w-full border border-transparent transition-colors duration-75",
-        active && "bg-[var(--win-select-bg)] text-white"
-      )}
-      style={{ 
-        fontFamily: "var(--font-shell)", 
-        fontSize: "var(--win-font-size)",
-        transform: active ? "translateY(1px)" : "none",
-        outline: active ? "1px dotted white" : undefined,
-        outlineOffset: -3
-      }}
-      onPointerDown={() => setActive(true)}
-      onPointerUp={() => setActive(false)}
-      onPointerLeave={() => setActive(false)}
-      onClick={onClick}
+    <div
+      className="relative w-full"
+      onMouseEnter={handleMouseEnter}
+      onMouseLeave={handleMouseLeave}
     >
-      {icon.endsWith(".png") ? (
-        <img src={`/win95-icons/${icon}`} width={16} height={16} alt="" style={{ imageRendering: "pixelated", flexShrink: 0 }} />
-      ) : (
-        <Win95Icon icon={icon} size={16} />
+      <button
+        type="button"
+        disabled={disabled}
+        className="flex items-center text-left w-full select-none relative"
+        style={{
+          fontFamily: "var(--font-win95-chrome)",
+          fontSize: "var(--win-font-size)",
+          lineHeight: 1,
+          height: rowHeight,
+          paddingLeft: 0,
+          paddingRight: 2,
+          background: resolvedBg,
+          color: resolvedColor,
+          textShadow: disabled ? "1px 1px 0 var(--win-highlight)" : "none",
+          border: 0,
+          cursor: disabled ? "default" : undefined,
+        }}
+        onClick={(e) => {
+          if (disabled) {
+            e.preventDefault();
+            return;
+          }
+          if (hasSubmenu) {
+            e.stopPropagation();
+            return;
+          }
+          onClick?.();
+        }}
+      >
+        <div
+          className="flex-shrink-0 flex items-center justify-center"
+          style={{ width: large ? iconSize + 4 : iconSize + 8, height: iconSize }}
+        >
+          {icon.endsWith(".png") ? (
+            <img
+              src={`/win95-icons/${icon}`}
+              width={iconSize}
+              height={iconSize}
+              alt=""
+              className="object-contain win95-icon-tune"
+              style={{ imageRendering: "pixelated", opacity: disabled ? 0.5 : 1 }}
+            />
+          ) : (
+            <Win95Icon icon={icon} size={iconSize} />
+          )}
+        </div>
+        <span
+          className="flex-1 truncate start-menu-label"
+          style={{ marginLeft: 4, marginRight: 6 }}
+          dangerouslySetInnerHTML={{ __html: label }}
+        />
+        {hasSubmenu && (
+          <span
+            aria-hidden
+            className="flex-shrink-0"
+            style={{
+              fontFamily: "var(--font-win95-chrome)",
+              fontSize: 11,
+              lineHeight: 1,
+              marginRight: 4,
+              color: active ? "var(--win-select-text)" : "var(--win-text)",
+            }}
+          >
+            &#9654;
+          </span>
+        )}
+      </button>
+
+      {/* Submenu — overlaps parent bevel by 3px for seamless material continuity */}
+      {hasSubmenu && showSubmenu && (
+        <div
+          className="absolute flex flex-col"
+          style={{
+            left: "calc(100% - 3px)",
+            top: -3,
+            zIndex: 2002,
+            minWidth: 200,
+            padding: 3,
+            background: "var(--win-face)",
+            boxShadow: "var(--bevel-raised)",
+            fontFamily: "var(--font-win95-chrome)",
+            fontSize: "var(--win-font-size)",
+          }}
+        >
+          {children!.length === 0 ? (
+            <StartMenuItem icon="" label="(Empty)" disabled />
+          ) : (
+            children!.map((child, i) => <StartMenuItem key={i} {...child} />)
+          )}
+        </div>
       )}
-      <span className={cn("truncate", active && "font-bold")}>{label}</span>
-    </button>
+    </div>
   );
 }

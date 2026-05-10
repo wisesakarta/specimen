@@ -10,7 +10,7 @@ export const DEFAULT_VFS: VFSNode[] = [
   },
   {
     id: "desktop-specimen",
-    name: "Specimen Analyzer",
+    name: "Specimen",
     type: "file",
     icon: "🔍",
     appType: "SPECIMEN",
@@ -163,7 +163,7 @@ export const DEFAULT_VFS: VFSNode[] = [
     id: "desktop-editor",
     name: "Monaco Editor",
     type: "file",
-    icon: "🗂️",
+    icon: "📋",
     appType: "MONACO_EDITOR",
   },
   {
@@ -175,7 +175,7 @@ export const DEFAULT_VFS: VFSNode[] = [
   },
   {
     id: "desktop-about",
-    name: "about.txt",
+    name: "about",
     type: "file",
     icon: "📄",
     appType: "NOTEPAD",
@@ -193,7 +193,7 @@ Credentials:
   },
   {
     id: "desktop-foundries",
-    name: "foundries.txt",
+    name: "foundries",
     type: "file",
     icon: "📄",
     appType: "NOTEPAD",
@@ -248,7 +248,7 @@ Credentials:
   },
   {
     id: "desktop-tech",
-    name: "tech-stack.txt",
+    name: "tech-stack",
     type: "file",
     icon: "📄",
     appType: "NOTEPAD",
@@ -277,7 +277,7 @@ Data & Extraction Pipeline:
 - Document Parsing: pdf-parse 2.4.5
 
 Identity & Assets:
-- Canonical Typeface: Departure Mono (Sovereign UI)
+- Canonical Typeface: W95FA (Windows 95 MS Sans Serif Reissue, Sovereign UI)
 - Benchmark Standard: Berkeley Mono (Output Reference)
 - Iconography: Lucide React + React95 Icons
 - UI Design System: React95 Core 9.8.0
