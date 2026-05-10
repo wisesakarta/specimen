@@ -297,6 +297,23 @@ export default function Win95Desktop({
     };
   }, []);
 
+  // Start menu mnemonic keys — when menu is open, letter keys activate items
+  useEffect(() => {
+    if (!isStartMenuOpen) return;
+    const handleMnemonic = (e: KeyboardEvent) => {
+      const key = e.key.toLowerCase();
+      if (key === "p") { /* Programs — submenu, no direct action */ }
+      else if (key === "d") { /* Documents — submenu, no direct action */ }
+      else if (key === "s") { /* Settings — submenu, no direct action */ }
+      else if (key === "f") { /* Find — submenu, no direct action */ }
+      else if (key === "h") { /* Help — disabled */ }
+      else if (key === "r") { setIsStartMenuOpen(false); onOpenSpecimen(); }
+      else if (key === "u") { setIsStartMenuOpen(false); setIsShutdownDialogOpen(true); }
+    };
+    window.addEventListener("keydown", handleMnemonic);
+    return () => window.removeEventListener("keydown", handleMnemonic);
+  }, [isStartMenuOpen]);
+
   const handleOpenApp = useCallback((type: AppType, title?: string, icon?: string, data?: WindowData) => {
     setIsStartMenuOpen(false);
 

@@ -29,6 +29,8 @@ export const WIN95_ICON_MAP: Record<string, Win95IconEntry> = {
   "📻": { src16: "/win95-icons/webamp.png",                   src32: "/win95-icons/webamp.png" },
   "⚡": { src16: "/win95-icons/webamp.png",                   src32: "/win95-icons/webamp.png" },
   "⌨️": { src16: "/win95-icons/MsDos_16x16_32.png",          src32: "/win95-icons/MsDos_32x32_32.png" },
+  "🔡": { src16: "/win95-icons/Folder_16x16_4.png",          src32: "/win95-icons/Folder_32x32_4.png" },
+  "📦": { src16: "/win95-icons/WebampSkins.png",              src32: "/win95-icons/WebampSkins.png" },
   "ShutDown": { src16: "/win95-icons/start-shutdown-32x32.png", src32: "/win95-icons/start-shutdown-32x32.png" },
 };
 

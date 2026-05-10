@@ -211,6 +211,9 @@ export default function Explorer({ vfs, initialData, runtimes, recents, onOpenNo
   const [history, setHistory] = useState<ExplorerView[]>(() => resolveInitialHistory(initialData, vfs));
   const [selected, setSelected] = useState<string | null>(null);
 
+  // Clipboard state for Cut/Copy/Paste operations
+  const [clipboard, setClipboard] = useState<{ id: string; mode: "cut" | "copy" } | null>(null);
+
   // View mode: "icon-grid" = My Computer style (large icons, no tree pane)
   //            "tree-list" = Windows Explorer style (split pane with tree + contents list)
   // Determined by how the window was opened. My Computer desktop icon passes
@@ -397,6 +400,59 @@ export default function Explorer({ vfs, initialData, runtimes, recents, onOpenNo
     setContextMenu(null);
   }, [items, onUpdateVFS]);
 
+  const handleCut = useCallback((itemId: string) => {
+    setClipboard({ id: itemId, mode: "cut" });
+    setContextMenu(null);
+  }, []);
+
+  const handleCopy = useCallback((itemId: string) => {
+    setClipboard({ id: itemId, mode: "copy" });
+    setContextMenu(null);
+  }, []);
+
+  const handlePaste = useCallback(() => {
+    if (!clipboard || !onUpdateVFS) return;
+    const sourceNode = findNode(clipboard.id, vfs);
+    if (!sourceNode) { setClipboard(null); return; }
+
+    // Create a copy of the node with new ID
+    const clonedNode: VFSNode = {
+      ...sourceNode,
+      id: `${sourceNode.id}-copy-${Date.now()}`,
+      name: clipboard.mode === "copy" ? `Copy of ${sourceNode.name}` : sourceNode.name,
+      modifiedAt: Date.now(),
+    };
+
+    // Insert into current folder
+    if (view.kind === "vfs" && view.node.children) {
+      onUpdateVFS((prev) => {
+        const addToNode = (nodes: VFSNode[], parentId: string): VFSNode[] =>
+          nodes.map(n => {
+            if (n.id === parentId) return { ...n, children: [...(n.children || []), clonedNode], modifiedAt: Date.now() };
+            if (n.children) return { ...n, children: addToNode(n.children, parentId) };
+            return n;
+          });
+        return addToNode(prev, view.node.id);
+      });
+    } else {
+      onUpdateVFS((prev) => [...prev, clonedNode]);
+    }
+
+    // If cut, remove original
+    if (clipboard.mode === "cut") {
+      onUpdateVFS((prev) => {
+        const removeFromNodes = (nodes: VFSNode[]): VFSNode[] =>
+          nodes.filter(n => n.id !== clipboard.id).map(n =>
+            n.children ? { ...n, children: removeFromNodes(n.children) } : n
+          );
+        return removeFromNodes(prev);
+      });
+    }
+
+    setClipboard(null);
+    setContextMenu(null);
+  }, [clipboard, vfs, view, onUpdateVFS]);
+
   const handleContextMenu = useCallback((e: React.MouseEvent, item?: DisplayItem) => {
     e.preventDefault();
     e.stopPropagation();
@@ -406,8 +462,8 @@ export default function Explorer({ vfs, initialData, runtimes, recents, onOpenNo
           { label: "Open", bold: true, onClick: () => item && onActivate(item) },
           ...(item.kind === "vfolder" ? [{ label: "Explore", onClick: () => item && onActivate(item) }] : []),
           { separator: true as const },
-          { label: "Cut", disabled: true },
-          { label: "Copy", disabled: true },
+          { label: "Cut", onClick: () => handleCut(item.id) },
+          { label: "Copy", onClick: () => handleCopy(item.id) },
           { separator: true as const },
           { label: "Delete", onClick: () => handleDelete(item.id) },
           { label: "Rename", onClick: () => handleRename(item.id) },
@@ -418,7 +474,7 @@ export default function Explorer({ vfs, initialData, runtimes, recents, onOpenNo
           { label: "View", disabled: true },
           { label: "Arrange Icons", disabled: true },
           { separator: true as const },
-          { label: "Paste", disabled: true },
+          { label: "Paste", disabled: !clipboard, onClick: () => handlePaste() },
           { separator: true as const },
           { label: "New Folder", onClick: () => handleNewFolder() },
           { separator: true as const },
@@ -426,7 +482,7 @@ export default function Explorer({ vfs, initialData, runtimes, recents, onOpenNo
         ];
 
     setContextMenu({ x: e.clientX, y: e.clientY, items: menuItems });
-  }, [handleDelete, handleRename, handleNewFolder]);
+  }, [handleDelete, handleRename, handleNewFolder, handleCut, handleCopy, handlePaste, clipboard]);
 
   // Menu bar state
   type MenuKey = "file" | "edit" | "view" | "help" | null;
@@ -434,6 +490,51 @@ export default function Explorer({ vfs, initialData, runtimes, recents, onOpenNo
   const handleMenuClick = (menu: MenuKey) => setActiveMenu(activeMenu === menu ? null : menu);
   const handleMenuHover = (menu: MenuKey) => { if (activeMenu) setActiveMenu(menu); };
   const closeMenus = () => setActiveMenu(null);
+
+  // Keyboard shortcuts — canonical Win95 Explorer behavior
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // F2 = Rename selected item
+      if (e.key === "F2" && selected) {
+        e.preventDefault();
+        handleRename(selected);
+      }
+      // Delete = Delete selected item
+      if (e.key === "Delete" && selected) {
+        e.preventDefault();
+        handleDelete(selected);
+      }
+      // Backspace = Go to parent folder
+      if (e.key === "Backspace") {
+        e.preventDefault();
+        goUp();
+      }
+      // Enter = Open/activate selected item
+      if (e.key === "Enter" && selected) {
+        e.preventDefault();
+        const item = items.find(i => i.id === selected);
+        if (item) onActivate(item);
+      }
+      // Ctrl+X = Cut
+      if (e.ctrlKey && e.key === "x" && selected) {
+        e.preventDefault();
+        handleCut(selected);
+      }
+      // Ctrl+C = Copy
+      if (e.ctrlKey && e.key === "c" && selected) {
+        e.preventDefault();
+        handleCopy(selected);
+      }
+      // Ctrl+V = Paste
+      if (e.ctrlKey && e.key === "v") {
+        e.preventDefault();
+        handlePaste();
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [selected, items, goUp, handleRename, handleDelete, handleCut, handleCopy, handlePaste]);
 
   // Build tree data for the left pane — handled by TreeNode component below
   const handleTreeSelect = (id: string) => {
@@ -472,14 +573,11 @@ export default function Explorer({ vfs, initialData, runtimes, recents, onOpenNo
           onOpen={() => handleMenuClick("edit")}
           onHover={() => handleMenuHover("edit")}
         >
-          <Win95MenuAction label="Undo" disabled />
+          <Win95MenuAction label="Cut" shortcut="Ctrl+X" disabled={!selected} onClick={() => { if (selected) handleCut(selected); closeMenus(); }} />
+          <Win95MenuAction label="Copy" shortcut="Ctrl+C" disabled={!selected} onClick={() => { if (selected) handleCopy(selected); closeMenus(); }} />
+          <Win95MenuAction label="Paste" shortcut="Ctrl+V" disabled={!clipboard} onClick={() => { handlePaste(); closeMenus(); }} />
           <Win95MenuSeparator />
-          <Win95MenuAction label="Cut" disabled />
-          <Win95MenuAction label="Copy" disabled />
-          <Win95MenuAction label="Paste" disabled />
-          <Win95MenuSeparator />
-          <Win95MenuAction label="Select All" onClick={() => { closeMenus(); }} disabled />
-          <Win95MenuAction label="Invert Selection" disabled />
+          <Win95MenuAction label="Select All" shortcut="Ctrl+A" disabled />
         </Win95MenuDropdown>
 
         <Win95MenuDropdown
