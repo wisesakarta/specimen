@@ -1,9 +1,14 @@
 {
   "name": "specimen",
-  "version": "0.1.0",
+  "version": "0.1.6",
   "private": true,
   "author": "Technical Standard",
-  "description": "Specimen — Font asset retrieval utility by Technical Standard",
+  "description": "Specimen — Sovereign Runtime Environment for font asset retrieval and structural auditing",
+  "homepage": "https://specimen.krtalabs.xyz",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/wisesakarta/specimen.git"
+  },
   "type": "module",
   "scripts": {
     "dev": "next dev --webpack",

@@ -1,0 +1,46 @@
+name: Scraper Request
+description: Request support for a new type foundry
+labels: ["scraper-request"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        New scraper requests must include evidence of the font delivery mechanism. Requests without a confirmed delivery method will be closed.
+  - type: input
+    id: foundry
+    attributes:
+      label: Foundry name
+    validations:
+      required: true
+  - type: input
+    id: url
+    attributes:
+      label: Foundry website
+      placeholder: "https://foundryname.com"
+    validations:
+      required: true
+  - type: input
+    id: specimen_url
+    attributes:
+      label: Representative typeface URL
+      placeholder: "https://foundryname.com/typefaces/family-name"
+    validations:
+      required: true
+  - type: dropdown
+    id: delivery
+    attributes:
+      label: Font delivery mechanism
+      description: How does the foundry serve webfont files?
+      options:
+        - Direct CDN (woff2/woff URLs in CSS or HTML)
+        - Fontdue GraphQL
+        - Shopify / custom storefront API
+        - Browser-only (JS-rendered, DRM-gated)
+        - Unknown — needs investigation
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Delivery evidence
+      description: Paste a network request URL, GraphQL endpoint, CSS @font-face source, or describe what you observed in the browser network tab.

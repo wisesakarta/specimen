@@ -1,0 +1,41 @@
+name: Bug Report
+description: Report a confirmed malfunction in the Specimen runtime
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Report only confirmed, reproducible malfunctions. Include the exact foundry URL, the scraper name from the analysis output, and the full error text.
+  - type: input
+    id: url
+    attributes:
+      label: Foundry URL
+      placeholder: "https://foundryname.com/typefaces/family"
+    validations:
+      required: true
+  - type: input
+    id: scraper
+    attributes:
+      label: Scraper name
+      placeholder: "e.g. Pangram Pangram Scraper"
+  - type: textarea
+    id: error
+    attributes:
+      label: Error output
+      description: Paste the full error message or stack trace from the browser console or server log.
+      render: shell
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: input
+    id: environment
+    attributes:
+      label: Environment
+      placeholder: "Node 22 · Docker 28 · macOS 15 / Ubuntu 24"
+    validations:
+      required: true
