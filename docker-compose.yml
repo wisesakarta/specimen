@@ -1,12 +1,9 @@
 services:
   specimen-app:
-    build: .
+    image: ghcr.io/wisesakarta/specimen:${IMAGE_TAG:-latest}
     container_name: specimen-runtime-prod
     ports:
       - "8085:3000"
     restart: always
     environment:
       - NODE_ENV=production
-      - NEXT_PUBLIC_APP_ENV=production
-      - NEXT_PUBLIC_APP_VERSION=0.1.6
-      - NEXT_PUBLIC_APP_BUILD=2026.05.11-PROD
