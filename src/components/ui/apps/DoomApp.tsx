@@ -18,7 +18,7 @@ export default function DoomApp({ onFocus, onActivityChange }: SovereignRuntimeP
   return (
     <div
       className="w-full h-full relative overflow-hidden"
-      style={{ background: "#000" }}
+      style={{ background: "var(--win-dk-shadow)" }}
       onMouseDown={() => onFocus?.()}
     >
       <iframe
@@ -37,7 +37,7 @@ export default function DoomApp({ onFocus, onActivityChange }: SovereignRuntimeP
       {isLoading && (
         <div
           className="absolute inset-0 flex flex-col items-center justify-center gap-3"
-          style={{ background: "#000", color: "#c0c0c0" }}
+          style={{ background: "var(--win-dk-shadow)", color: "var(--win-face)" }}
         >
           <span style={{ fontFamily: "var(--font-shell)", fontSize: 11 }}>
             Loading DOOM...

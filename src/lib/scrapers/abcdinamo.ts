@@ -557,8 +557,8 @@ const buildDinamoDirectAssets = async (
 };
 
 /**
- * Script untuk memprovokasi browser agar memuat seluruh varian font ABC Dinamo.
- * Script ini akan mencari tab sub-keluarga (Condensed, Nord, dll.) dan mengkliknya.
+ * Browser injection script that forces all ABC Dinamo font variants to load.
+ * Clicks sub-family tabs (Condensed, Nord, etc.) to trigger webfont requests.
  */
 const buildDinamoProvocationScript = (familyName: string): string => {
   return `
@@ -611,7 +611,7 @@ const buildDinamoProvocationScript = (familyName: string): string => {
         }
       };
 
-      log("[SPECIMEN] Provokasi Dinamo 7.0 started for: " + familyLabel);
+      log("[SPECIMEN] Dinamo extraction 7.0 started for: " + familyLabel);
 
       // Wait for page to fully load
       await sleep(2000);
@@ -793,7 +793,7 @@ const buildDinamoProvocationScript = (familyName: string): string => {
       // Final scroll and wait
       window.scrollTo(0, 0);
       await sleep(500);
-      log("[SPECIMEN] Provokasi Dinamo completed successfully!");
+      log("[SPECIMEN] Dinamo extraction completed successfully!");
       window.__specimen_extraction_complete = true;
       window.__specimen_extraction_complete = true;
     })();

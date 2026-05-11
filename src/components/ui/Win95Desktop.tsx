@@ -255,7 +255,6 @@ export default function Win95Desktop({
   const [currentTime, setCurrentTime] = useState<Date | null>(null);
   const [bootStatus, setBootStatus] = useState<"booting" | "ready">("booting");
   const handleBootComplete = useCallback(() => {
-    console.log("SPECIMEN: Boot Sequence Complete. Initializing GUI...");
     setBootStatus("ready");
   }, []);
   const [isShuttingDown, setIsShuttingDown] = useState(false);
@@ -334,10 +333,7 @@ export default function Win95Desktop({
   }, [openWindow]);
 
   const handleOpenNode = (node: VFSNode) => {
-    if (!node) {
-      console.warn("SPECIMEN: Attempted to open undefined VFSNode. Launch aborted.");
-      return;
-    }
+    if (!node) return;
     setIsStartMenuOpen(false);
     if (node.type === "folder") {
       openWindow(node.id, "EXPLORER", node.name, node.icon, node);

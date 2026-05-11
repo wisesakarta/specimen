@@ -54,14 +54,14 @@ const detectFormat = (value: string): FontMetadata["format"] => {
 };
 
 const detectWeight = (value: string): number => {
-  const lower = value.toLowerCase();
-  if (/thin/.test(lower)) return 100;
-  if (/ultralight|extra-?light/.test(lower)) return 200;
+  const lower = value.toLowerCase().replace(/\s+/g, "");
+  if (/thin|hairline/.test(lower)) return 100;
+  if (/ultralight|extralight/.test(lower)) return 200;
   if (/light/.test(lower)) return 300;
-  if (/regular|roman/.test(lower)) return 400;
+  if (/normal|regular|roman/.test(lower)) return 400;
   if (/medium/.test(lower)) return 500;
-  if (/semi-?bold|demi-?bold/.test(lower)) return 600;
-  if (/ultra-?bold|extra-?bold/.test(lower)) return 800;
+  if (/semibold|demibold/.test(lower)) return 600;
+  if (/ultrabold|extrabold/.test(lower)) return 800;
   if (/black|heavy/.test(lower)) return 900;
   if (/bold/.test(lower)) return 700;
   return 400;
@@ -92,7 +92,10 @@ const buildWTypeStyleDescriptor = (
 ): { styleName: string; fullName: string; style: "normal" | "italic"; weight: number } => {
   const fileName = decodeURIComponent(new URL(assetUrl).pathname.split("/").pop() || "");
   const stem = fileName.replace(/\.(woff2?|ttf|otf)$/i, "");
-  let token = stem.toLowerCase().replace(/^wtfforma[-_]?/i, "");
+  const familyToken = familyName.toLowerCase().replace(/[^a-z0-9]+/g, "");
+  let token = stem.toLowerCase()
+    .replace(/^wtfforma[-_]?/i, "")
+    .replace(new RegExp(`^${familyToken}[-_]?`), "");
   let widthLabel = "";
 
   for (const [prefix, label] of WTYPE_WIDTH_PREFIXES) {
@@ -106,16 +109,21 @@ const buildWTypeStyleDescriptor = (
   if (italic) token = token.slice(0, -6);
 
   let weightLabel = "Regular";
-  if (token === "thin") weightLabel = "Thin";
+  if (token === "thin" || token === "hairline") weightLabel = "Thin";
+  else if (token === "ultralight" || token === "extralight") weightLabel = "Ultra Light";
   else if (token === "light") weightLabel = "Light";
-  else if (token === "regular") weightLabel = "Regular";
+  else if (token === "normal") weightLabel = "Normal";
+  else if (token === "regular" || token === "roman") weightLabel = "Regular";
   else if (token === "medium") weightLabel = "Medium";
-  else if (token === "bold") weightLabel = "Bold";
+  else if (token === "semibold" || token === "demibold") weightLabel = "Semibold";
+  else if (token === "ultrabold" || token === "extrabold") weightLabel = "Ultra Bold";
+  else if (token === "black") weightLabel = "Black";
   else if (token === "heavy") weightLabel = "Heavy";
+  else if (token === "bold") weightLabel = "Bold";
 
   let styleName = [widthLabel, weightLabel].filter(Boolean).join(" ").trim() || "Regular";
   if (italic) {
-    if (styleName === "Regular") styleName = "Italic";
+    if (styleName === "Regular" || styleName === "Normal") styleName = "Italic";
     else if (styleName.endsWith(" Regular")) styleName = styleName.replace(/ Regular$/i, " Italic");
     else styleName = `${styleName} Italic`;
   }

@@ -18,7 +18,7 @@ export default function SkiFreeApp({ onFocus, onActivityChange }: SovereignRunti
   return (
     <div
       className="w-full h-full relative overflow-hidden"
-      style={{ background: "#c0c0c0" }}
+      style={{ background: "var(--win-face)" }}
       onMouseDown={() => onFocus?.()}
     >
       <iframe
@@ -37,7 +37,7 @@ export default function SkiFreeApp({ onFocus, onActivityChange }: SovereignRunti
       {isLoading && (
         <div
           className="absolute inset-0 flex flex-col items-center justify-center gap-3"
-          style={{ background: "#c0c0c0" }}
+          style={{ background: "var(--win-face)" }}
         >
           <span style={{ fontFamily: "var(--font-shell)", fontSize: 11 }}>
             Loading SkiFree...

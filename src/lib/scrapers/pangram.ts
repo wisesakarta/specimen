@@ -286,7 +286,7 @@ const buildPangramInjectScript = (familyName: string): string => {
       window.scrollTo(0, 0);
       await sleep(700);
 
-      console.log("[SPECIMEN] Provokasi Selesai");
+      console.log("[SPECIMEN] Extraction complete.");
       window.__specimen_extraction_complete = true;
       window.__specimen_extraction_complete = true;
     })();
