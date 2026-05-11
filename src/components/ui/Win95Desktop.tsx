@@ -1035,7 +1035,9 @@ function StartMenuItem({
 }) {
   const [active, setActive] = useState(false);
   const [showSubmenu, setShowSubmenu] = useState(false);
+  const [submenuFlipped, setSubmenuFlipped] = useState(false);
   const timeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const itemRef = useRef<HTMLDivElement>(null);
   const hasSubmenu = Array.isArray(children);
 
   const handleMouseEnter = () => {
@@ -1043,6 +1045,10 @@ function StartMenuItem({
     setActive(true);
     if (hasSubmenu) {
       if (timeoutRef.current) clearTimeout(timeoutRef.current);
+      if (itemRef.current) {
+        const rect = itemRef.current.getBoundingClientRect();
+        setSubmenuFlipped(window.innerWidth - rect.right < 190);
+      }
       timeoutRef.current = setTimeout(() => setShowSubmenu(true), 300);
     }
   };
@@ -1071,6 +1077,7 @@ function StartMenuItem({
 
   return (
     <div
+      ref={itemRef}
       className="relative w-full"
       onMouseEnter={handleMouseEnter}
       onMouseLeave={handleMouseLeave}
@@ -1149,11 +1156,12 @@ function StartMenuItem({
         <div
           className="absolute flex flex-col"
           style={{
-            left: "calc(100% - 3px)",
+            left: submenuFlipped ? undefined : "calc(100% - 3px)",
+            right: submenuFlipped ? "calc(100% - 3px)" : undefined,
             top: -3,
             zIndex: 2002,
             minWidth: 180,
-            maxWidth: "min(220px, calc(100vw - 240px))",
+            maxWidth: "min(220px, calc(100vw - 30px))",
             padding: 3,
             background: "var(--win-face)",
             boxShadow: "var(--bevel-raised)",
