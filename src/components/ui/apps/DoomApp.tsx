@@ -1,16 +1,19 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import type { SovereignRuntimeProps } from "@/runtime/runtime-dispatch";
+import Win95ProgressBar from "@/components/ui/Win95ProgressBar";
 
-/**
- * DoomApp — DOOM shareware via js-dos emulator.
- * Loads the DOOM1.WAD shareware bundle through the js-dos CDN.
- * Per AGENTS.md §-1.1: a sovereign citizen that demonstrates
- * the runtime can execute DOS-era software.
- */
-export default function DoomApp({ isVisible, onFocus }: SovereignRuntimeProps) {
+export default function DoomApp({ onFocus, onActivityChange }: SovereignRuntimeProps) {
   const [isLoading, setIsLoading] = useState(true);
+
+  useEffect(() => {
+    if (isLoading) {
+      onActivityChange?.({ subtitle: "Loading...", dirty: false });
+    } else {
+      onActivityChange?.({ subtitle: "Running", dirty: false });
+    }
+  }, [isLoading]);
 
   return (
     <div
@@ -31,6 +34,17 @@ export default function DoomApp({ isVisible, onFocus }: SovereignRuntimeProps) {
         }}
         allow="autoplay"
       />
+      {isLoading && (
+        <div
+          className="absolute inset-0 flex flex-col items-center justify-center gap-3"
+          style={{ background: "#000", color: "#c0c0c0" }}
+        >
+          <span style={{ fontFamily: "var(--font-shell)", fontSize: 11 }}>
+            Loading DOOM...
+          </span>
+          <Win95ProgressBar indeterminate className="w-40" height={14} />
+        </div>
+      )}
     </div>
   );
 }

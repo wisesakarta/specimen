@@ -1,21 +1,24 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import type { SovereignRuntimeProps } from "@/runtime/runtime-dispatch";
+import Win95ProgressBar from "@/components/ui/Win95ProgressBar";
 
-/**
- * SkiFreeApp — Classic SkiFree game (basicallydan/skifree.js).
- * Self-hosted at /skifree/index.html.
- * Per AGENTS.md §-1.1: a sovereign citizen demonstrating
- * the runtime can host interactive entertainment software.
- */
-export default function SkiFreeApp({ isVisible, onFocus }: SovereignRuntimeProps) {
+export default function SkiFreeApp({ onFocus, onActivityChange }: SovereignRuntimeProps) {
   const [isLoading, setIsLoading] = useState(true);
+
+  useEffect(() => {
+    if (isLoading) {
+      onActivityChange?.({ subtitle: "Loading...", dirty: false });
+    } else {
+      onActivityChange?.({ subtitle: "Running", dirty: false });
+    }
+  }, [isLoading]);
 
   return (
     <div
       className="w-full h-full relative overflow-hidden"
-      style={{ background: "#fff" }}
+      style={{ background: "#c0c0c0" }}
       onMouseDown={() => onFocus?.()}
     >
       <iframe
@@ -31,6 +34,17 @@ export default function SkiFreeApp({ isVisible, onFocus }: SovereignRuntimeProps
         }}
         allow="autoplay"
       />
+      {isLoading && (
+        <div
+          className="absolute inset-0 flex flex-col items-center justify-center gap-3"
+          style={{ background: "#c0c0c0" }}
+        >
+          <span style={{ fontFamily: "var(--font-shell)", fontSize: 11 }}>
+            Loading SkiFree...
+          </span>
+          <Win95ProgressBar indeterminate className="w-40" height={14} />
+        </div>
+      )}
     </div>
   );
 }
