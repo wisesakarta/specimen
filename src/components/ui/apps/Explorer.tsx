@@ -154,6 +154,25 @@ function vfsToItem(node: VFSNode): DisplayItem {
   };
 }
 
+function getAddressPath(view: ExplorerView, vfs: VFSNode[]): string {
+  if (view.kind !== "vfs") {
+    switch (view.kind) {
+      case "my-computer":     return "My Computer";
+      case "desktop":         return "Desktop";
+      case "active-sessions": return "Active Sessions";
+      case "recent-items":    return "Recent Items";
+    }
+  }
+  const buildPath = (id: string): string[] => {
+    const node = findNode(id, vfs);
+    if (!node) return [];
+    const parent = findParent(id, vfs);
+    if (!parent) return [node.name];
+    return [...buildPath(parent.id), node.name];
+  };
+  return `C:\\${buildPath(view.node.id).join("\\")}`;
+}
+
 // ─── Initial state resolution ─────────────────────────────────────────────────
 
 function resolveInitialView(data: unknown, vfs: VFSNode[]): ExplorerView {
@@ -213,6 +232,9 @@ export default function Explorer({ vfs, initialData, runtimes, recents, onOpenNo
 
   // Clipboard state for Cut/Copy/Paste operations
   const [clipboard, setClipboard] = useState<{ id: string; mode: "cut" | "copy" } | null>(null);
+
+  // In-place rename state — null means no rename in progress
+  const [renamingId, setRenamingId] = useState<string | null>(null);
 
   // View mode: "icon-grid" = My Computer style (large icons, no tree pane)
   //            "tree-list" = Windows Explorer style (split pane with tree + contents list)
@@ -326,10 +348,10 @@ export default function Explorer({ vfs, initialData, runtimes, recents, onOpenNo
   // Canonical Win95 Explorer title: "Exploring - {folder name}"
   const titleLabel = getViewLabel(view);
 
-  // Emit activity subtitle when view changes — updates window title bar
+  // Emit activity subtitle when view changes — canonical Win95: "Exploring - {folder}"
   useEffect(() => {
     const label = getViewLabel(view);
-    onActivityChange?.({ subtitle: label });
+    onActivityChange?.({ subtitle: `Exploring - ${label}` });
   }, [view]);
 
   // Display mode: canonical Win95 View menu options
@@ -383,22 +405,28 @@ export default function Explorer({ vfs, initialData, runtimes, recents, onOpenNo
   }, [onUpdateVFS]);
 
   const handleRename = useCallback((itemId: string) => {
-    const item = items.find(i => i.id === itemId);
-    if (!item || !onUpdateVFS) return;
-    const newName = window.prompt("Rename", item.name);
-    if (!newName || newName === item.name) return;
+    setRenamingId(itemId);
+    setContextMenu(null);
+  }, []);
 
+  const handleRenameCommit = useCallback((itemId: string, newName: string) => {
+    const trimmed = newName.trim();
+    setRenamingId(null);
+    if (!trimmed || !onUpdateVFS) return;
+    const item = items.find(i => i.id === itemId);
+    if (!item || trimmed === item.name) return;
     onUpdateVFS((prev) => {
       const renameInNodes = (nodes: VFSNode[]): VFSNode[] =>
         nodes.map(n => {
-          if (n.id === itemId) return { ...n, name: newName, modifiedAt: Date.now() };
+          if (n.id === itemId) return { ...n, name: trimmed, modifiedAt: Date.now() };
           if (n.children) return { ...n, children: renameInNodes(n.children) };
           return n;
         });
       return renameInNodes(prev);
     });
-    setContextMenu(null);
   }, [items, onUpdateVFS]);
+
+  const handleRenameCancel = useCallback(() => setRenamingId(null), []);
 
   const handleCut = useCallback((itemId: string) => {
     setClipboard({ id: itemId, mode: "cut" });
@@ -609,6 +637,34 @@ export default function Explorer({ vfs, initialData, runtimes, recents, onOpenNo
       {/* Global menu close trigger */}
       {activeMenu && <div className="fixed inset-0 z-40" onMouseDown={closeMenus} />}
 
+      {/* Address bar — canonical Win95 Explorer toolbar row */}
+      <div
+        className="flex items-center"
+        style={{ height: 22, padding: "1px 3px", gap: 4, borderBottom: "1px solid var(--win-shadow)", background: "var(--win-face)", flexShrink: 0 }}
+      >
+        <span style={{ fontFamily: "var(--font-shell)", fontSize: "var(--win-font-size)", color: "var(--win-text)", whiteSpace: "nowrap", paddingRight: 2 }}>
+          Address
+        </span>
+        <div
+          style={{
+            flex: 1,
+            height: 18,
+            background: "var(--win-window)",
+            boxShadow: "var(--bevel-sunken)",
+            padding: "1px 4px",
+            fontFamily: "var(--font-shell)",
+            fontSize: "var(--win-font-size)",
+            color: "var(--win-text)",
+            overflow: "hidden",
+            whiteSpace: "nowrap",
+            display: "flex",
+            alignItems: "center",
+          }}
+        >
+          {getAddressPath(view, vfs)}
+        </div>
+      </div>
+
       {/* Content area — mode-dependent layout */}
       {viewMode === "icon-grid" ? (
         /* ═══ MY COMPUTER MODE: No tree pane, content fills entire area ═══ */
@@ -622,7 +678,7 @@ export default function Explorer({ vfs, initialData, runtimes, recents, onOpenNo
           }}
           onClick={(e) => { if (e.target === e.currentTarget) setSelected(null); }} onContextMenu={(e) => handleContextMenu(e)}
         >
-          <ContentArea items={items} displayMode={displayMode} selected={selected} onSelect={setSelected} onActivate={onActivate} onContextMenu={handleContextMenu} />
+          <ContentArea items={items} displayMode={displayMode} selected={selected} onSelect={setSelected} onActivate={onActivate} onContextMenu={handleContextMenu} renamingId={renamingId} onRenameCommit={handleRenameCommit} onRenameCancel={handleRenameCancel} />
         </div>
       ) : (
         /* ═══ EXPLORER MODE: Split pane (tree left + contents right) ═══
@@ -722,7 +778,7 @@ export default function Explorer({ vfs, initialData, runtimes, recents, onOpenNo
               }}
               onClick={(e) => { if (e.target === e.currentTarget) setSelected(null); }} onContextMenu={(e) => handleContextMenu(e)}
             >
-              <ContentArea items={items} displayMode={displayMode} selected={selected} onSelect={setSelected} onActivate={onActivate} onContextMenu={handleContextMenu} />
+              <ContentArea items={items} displayMode={displayMode} selected={selected} onSelect={setSelected} onActivate={onActivate} onContextMenu={handleContextMenu} renamingId={renamingId} onRenameCommit={handleRenameCommit} onRenameCancel={handleRenameCancel} />
             </div>
           </div>
         </div>
@@ -761,12 +817,15 @@ export default function Explorer({ vfs, initialData, runtimes, recents, onOpenNo
 // + navy bg on label with dotted outline. Grid cell width 116px per snippet.
 
 function IconTile({
-  item, selected, onSelect, onActivate,
+  item, selected, onSelect, onActivate, renaming, onRenameCommit, onRenameCancel,
 }: {
   item: DisplayItem;
   selected: boolean;
   onSelect: () => void;
   onActivate: () => void;
+  renaming?: boolean;
+  onRenameCommit?: (name: string) => void;
+  onRenameCancel?: () => void;
 }) {
   const iconSrc32 = item.iconSrc
     ? item.iconSrc.replace("_16x16_", "_32x32_")
@@ -776,8 +835,8 @@ function IconTile({
     <div
       className="flex flex-col items-center cursor-default select-none"
       style={{ width: 116, padding: "4px 0" }}
-      onClick={() => { if (selected) onActivate(); else onSelect(); }}
-      onDoubleClick={onActivate}
+      onClick={renaming ? undefined : onSelect}
+      onDoubleClick={renaming ? undefined : onActivate}
     >
       {/* Icon area — 48x48 container, 32x32 icon centered */}
       <div
@@ -803,7 +862,7 @@ function IconTile({
         ) : (
           <span style={{ fontSize: 24 }}>□</span>
         )}
-        {selected && (
+        {selected && !renaming && (
           <div
             aria-hidden
             style={{
@@ -816,22 +875,46 @@ function IconTile({
           />
         )}
       </div>
-      {/* Label — canonical Win95 selection: navy bg, white text, 1.5px dotted border */}
-      <span
-        className="text-center break-words"
-        style={{
-          padding: "1px 2px",
-          maxWidth: "100%",
-          fontFamily: "var(--font-shell)",
-          fontSize: "var(--win-font-size)",
-          lineHeight: 1.3,
-          background: selected ? "var(--win-select-bg)" : "transparent",
-          color: selected ? "var(--win-select-text)" : "var(--win-text)",
-          border: selected ? "1.5px dotted var(--win-highlight)" : "1.5px solid transparent",
-        }}
-      >
-        {item.name}
-      </span>
+      {/* Label — in-place rename or canonical Win95 selection style */}
+      {renaming ? (
+        <input
+          autoFocus
+          defaultValue={item.name}
+          className="text-center"
+          style={{
+            width: 108,
+            fontFamily: "var(--font-shell)",
+            fontSize: "var(--win-font-size)",
+            background: "var(--win-window)",
+            color: "var(--win-text)",
+            border: "1px solid var(--win-shadow)",
+            padding: "1px 2px",
+            outline: "none",
+          }}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") { e.preventDefault(); onRenameCommit?.(e.currentTarget.value); }
+            if (e.key === "Escape") { e.preventDefault(); onRenameCancel?.(); }
+          }}
+          onBlur={(e) => onRenameCommit?.(e.currentTarget.value)}
+          onClick={(e) => e.stopPropagation()}
+        />
+      ) : (
+        <span
+          className="text-center break-words"
+          style={{
+            padding: "1px 2px",
+            maxWidth: "100%",
+            fontFamily: "var(--font-shell)",
+            fontSize: "var(--win-font-size)",
+            lineHeight: 1.3,
+            background: selected ? "var(--win-select-bg)" : "transparent",
+            color: selected ? "var(--win-select-text)" : "var(--win-text)",
+            border: selected ? "1.5px dotted var(--win-highlight)" : "1.5px solid transparent",
+          }}
+        >
+          {item.name}
+        </span>
+      )}
     </div>
   );
 }
@@ -948,32 +1031,32 @@ function TreeNode({
 // Selection: navy bg + white text. Focus: 1px dotted white outline inset.
 
 function ContentRow({
-  item, selected, onSelect, onActivate,
+  item, selected, onSelect, onActivate, renaming, onRenameCommit, onRenameCancel,
 }: {
   item: DisplayItem;
   selected: boolean;
   onSelect: () => void;
   onActivate: () => void;
+  renaming?: boolean;
+  onRenameCommit?: (name: string) => void;
+  onRenameCancel?: () => void;
 }) {
   return (
     <div
       className="flex items-center cursor-default select-none relative"
       style={{
-        height: 18,
+        height: renaming ? 20 : 18,
         padding: "0 2px",
-        background: selected ? "var(--win-select-bg)" : "transparent",
-        color: selected ? "var(--win-select-text)" : "var(--win-text)",
+        background: selected && !renaming ? "var(--win-select-bg)" : "transparent",
+        color: selected && !renaming ? "var(--win-select-text)" : "var(--win-text)",
         fontFamily: "var(--font-shell)",
         fontSize: "var(--win-font-size)",
       }}
-      onClick={() => {
-        if (selected) onActivate();
-        else onSelect();
-      }}
-      onDoubleClick={onActivate}
+      onClick={renaming ? undefined : onSelect}
+      onDoubleClick={renaming ? undefined : onActivate}
     >
       {/* Dotted focus rectangle — canonical Win95 selection indicator */}
-      {selected && (
+      {selected && !renaming && (
         <div
           aria-hidden
           style={{
@@ -996,7 +1079,30 @@ function ContentRow({
       ) : (
         <span style={{ width: 16, flexShrink: 0, marginRight: 6, textAlign: "center" }}>□</span>
       )}
-      <span className="truncate">{item.name}</span>
+      {renaming ? (
+        <input
+          autoFocus
+          defaultValue={item.name}
+          style={{
+            flex: 1,
+            fontFamily: "var(--font-shell)",
+            fontSize: "var(--win-font-size)",
+            background: "var(--win-window)",
+            color: "var(--win-text)",
+            border: "1px solid var(--win-shadow)",
+            padding: "0 2px",
+            outline: "none",
+          }}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") { e.preventDefault(); onRenameCommit?.(e.currentTarget.value); }
+            if (e.key === "Escape") { e.preventDefault(); onRenameCancel?.(); }
+          }}
+          onBlur={(e) => onRenameCommit?.(e.currentTarget.value)}
+          onClick={(e) => e.stopPropagation()}
+        />
+      ) : (
+        <span className="truncate">{item.name}</span>
+      )}
     </div>
   );
 }
@@ -1004,7 +1110,7 @@ function ContentRow({
 // ─── Content Area (renders items based on display mode) ───────────────────────
 
 function ContentArea({
-  items, displayMode, selected, onSelect, onActivate, onContextMenu,
+  items, displayMode, selected, onSelect, onActivate, onContextMenu, renamingId, onRenameCommit, onRenameCancel,
 }: {
   items: DisplayItem[];
   displayMode: "large-icons" | "small-icons" | "list" | "details";
@@ -1012,6 +1118,9 @@ function ContentArea({
   onSelect: (id: string | null) => void;
   onActivate: (item: DisplayItem) => void;
   onContextMenu?: (e: React.MouseEvent, item?: DisplayItem) => void;
+  renamingId?: string | null;
+  onRenameCommit?: (id: string, name: string) => void;
+  onRenameCancel?: () => void;
 }) {
   if (items.length === 0) {
     return (
@@ -1029,7 +1138,7 @@ function ContentArea({
       >
         {items.map((item) => (
           <div key={item.id} onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); onSelect(item.id); onContextMenu?.(e, item); }}>
-            <IconTile item={item} selected={selected === item.id} onSelect={() => onSelect(item.id)} onActivate={() => onActivate(item)} />
+            <IconTile item={item} selected={selected === item.id} onSelect={() => onSelect(item.id)} onActivate={() => onActivate(item)} renaming={renamingId === item.id} onRenameCommit={(name) => onRenameCommit?.(item.id, name)} onRenameCancel={onRenameCancel} />
           </div>
         ))}
       </div>
@@ -1051,7 +1160,7 @@ function ContentArea({
               color: selected === item.id ? "var(--win-select-text)" : "var(--win-text)",
               fontSize: "var(--win-font-size)",
             }}
-            onClick={() => { if (selected === item.id) onActivate(item); else onSelect(item.id); }}
+            onClick={() => onSelect(item.id)}
             onDoubleClick={() => onActivate(item)}
           >
             {item.iconSrc && <img src={item.iconSrc} width={16} height={16} alt="" style={{ imageRendering: "pixelated", marginRight: 4, flexShrink: 0 }} />}
@@ -1067,7 +1176,7 @@ function ContentArea({
       <div style={{ display: "flex", flexDirection: "column" }}>
         {items.map((item) => (
           <div key={item.id} onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); onSelect(item.id); onContextMenu?.(e, item); }}>
-            <ContentRow item={item} selected={selected === item.id} onSelect={() => onSelect(item.id)} onActivate={() => onActivate(item)} />
+            <ContentRow item={item} selected={selected === item.id} onSelect={() => onSelect(item.id)} onActivate={() => onActivate(item)} renaming={renamingId === item.id} onRenameCommit={(name) => onRenameCommit?.(item.id, name)} onRenameCancel={onRenameCancel} />
           </div>
         ))}
       </div>
@@ -1094,7 +1203,7 @@ function ContentArea({
             color: selected === item.id ? "var(--win-select-text)" : "var(--win-text)",
             fontSize: "var(--win-font-size)",
           }}
-          onClick={() => { if (selected === item.id) onActivate(item); else onSelect(item.id); }}
+          onClick={() => onSelect(item.id)}
           onDoubleClick={() => onActivate(item)}
         >
           <div className="flex items-center truncate" style={{ flex: 3, padding: "0 4px" }}>
