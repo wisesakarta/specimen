@@ -70,3 +70,36 @@ tools/patch-generic-pinterest.mjs
 tools/svelge.py
 AGENTS.md
 .env*
+
+# IDE / agent tooling (local config, not needed in repo)
+.claude/
+.kiro/
+
+# One-off snippets and research artifacts
+CODEPEN_SNIPPET.md
+tasks/blazetype-catalog-healthcheck.ts
+tasks/extract-graphql.ts
+tasks/extract-pdf-fonts.py
+tasks/extracted_fonts/
+tasks/generate-arabic-proof.py
+tasks/massdriver-nichrome.html
+
+# Non-essential support tools
+tools/Chicago95_Extras/
+
+# SkiFree subproject dev infrastructure (game assets already tracked separately)
+public/skifree/.gitattributes
+public/skifree/.gitignore
+public/skifree/CHANGELOG.md
+public/skifree/README.md
+public/skifree/package.json
+public/skifree/npm-shrinkwrap.json
+public/skifree/playwright.config.js
+public/skifree/vitest.config.js
+public/skifree/test/
+public/skifree/*.psd
+public/skifree/*.png
+public/skifree/license.md
+
+# Non-essential support tools
+tools/win95-winxp_icons/
