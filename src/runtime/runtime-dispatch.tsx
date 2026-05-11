@@ -4,19 +4,20 @@ import dynamic from "next/dynamic";
 import type { AppType, VFSNode, WindowData } from "@/lib/os-config";
 import type { AudioPlaybackState, RuntimeActivityState } from "@/lib/runtime";
 import type { PersistedRecent } from "@/lib/persistence";
+import { safeDynamicImport } from "@/lib/dynamic-import";
 
 // Hard-linked Managed Citizens
 import Explorer, { type RuntimeSnapshot } from "@/components/ui/apps/Explorer";
 import WebBrowser from "@/components/ui/apps/WebBrowser";
 
 // Dynamically-linked Sovereign Citizens
-const WebampPlayer = dynamic(() => import("@/components/ui/apps/WebampPlayer"), { ssr: false });
-const MonacoEditorApp = dynamic(() => import("@/components/ui/apps/MonacoEditor"), { ssr: false });
-const JSPaintApp = dynamic(() => import("@/components/ui/apps/JSPaintApp"), { ssr: false });
-const NotepadApp = dynamic(() => import("@/components/ui/apps/Notepad"), { ssr: false });
-const TerminalApp = dynamic(() => import("@/components/ui/apps/Terminal"), { ssr: false });
-const DoomApp = dynamic(() => import("@/components/ui/apps/DoomApp"), { ssr: false });
-const SkiFreeApp = dynamic(() => import("@/components/ui/apps/SkiFreeApp"), { ssr: false });
+const WebampPlayer = safeDynamicImport(() => import("@/components/ui/apps/WebampPlayer"));
+const MonacoEditorApp = safeDynamicImport(() => import("@/components/ui/apps/MonacoEditor"));
+const JSPaintApp = safeDynamicImport(() => import("@/components/ui/apps/JSPaintApp"));
+const NotepadApp = safeDynamicImport(() => import("@/components/ui/apps/Notepad"));
+const TerminalApp = safeDynamicImport(() => import("@/components/ui/apps/Terminal"));
+const DoomApp = safeDynamicImport(() => import("@/components/ui/apps/DoomApp"));
+const SkiFreeApp = safeDynamicImport(() => import("@/components/ui/apps/SkiFreeApp"));
 
 /**
  * The standard shell-to-runtime contract for Sovereign citizens.
