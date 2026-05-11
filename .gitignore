@@ -29,8 +29,7 @@ OTSO_AGENTS.md
 # Generated reports and ad-hoc captures
 tasks/reports/*.json
 
-# Vendored game bundles (binary, downloaded at setup)
-public/doom/doom.jsdos
+# Vendored game bundles
 tasks/reports/**/*.json
 tasks/reports/**/*.jsonl
 tasks/reports/**/*.html
