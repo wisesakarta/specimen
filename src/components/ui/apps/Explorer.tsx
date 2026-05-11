@@ -4,7 +4,7 @@ import React, { useState, useMemo, useEffect, useCallback } from "react";
 import type { ReactNode } from "react";
 import { type VFSNode, type AppType, type WindowData } from "@/lib/os-config";
 import { Win95StatusBar, Win95StatusPanel } from "../Win95Window";
-import { Win95MenuBar, Win95MenuDropdown, Win95MenuAction, Win95MenuSeparator } from "../Win95Menu";
+import { Win95MenuBar, Win95MenuDropdown, Win95MenuAction, Win95MenuSeparator, Win95MenuSubmenu } from "../Win95Menu";
 import { resolveWin95Icon } from "@/lib/icon-map";
 import Win95ContextMenu, { type ContextMenuEntry } from "../Win95ContextMenu";
 
@@ -579,47 +579,73 @@ export default function Explorer({ vfs, initialData, runtimes, recents, onOpenNo
 
       {/* Menu Bar — canonical Win95: File / Edit / View / Help (functional dropdowns) */}
       <Win95MenuBar>
+        {/* File menu — matches Win95 Explorer: New▶, Create Shortcut, Delete, Rename, Properties, Close */}
         <Win95MenuDropdown
           label="File"
           isOpen={activeMenu === "file"}
           onOpen={() => handleMenuClick("file")}
           onHover={() => handleMenuHover("file")}
         >
-          <Win95MenuAction label="New Folder" onClick={() => { handleNewFolder(); closeMenus(); }} />
+          <Win95MenuSubmenu label="New">
+            <Win95MenuAction label="Folder" onClick={() => { handleNewFolder(); closeMenus(); }} />
+            <Win95MenuSeparator />
+            <Win95MenuAction label="Shortcut" disabled />
+            <Win95MenuAction label="Text Document" disabled />
+          </Win95MenuSubmenu>
           <Win95MenuSeparator />
+          <Win95MenuAction label="Create Shortcut" disabled />
           <Win95MenuAction label="Delete" disabled={!selected} onClick={() => { if (selected) handleDelete(selected); closeMenus(); }} />
           <Win95MenuAction label="Rename" disabled={!selected} onClick={() => { if (selected) handleRename(selected); closeMenus(); }} />
-          <Win95MenuSeparator />
           <Win95MenuAction label="Properties" disabled />
           <Win95MenuSeparator />
           <Win95MenuAction label="Close" onClick={() => closeMenus()} />
         </Win95MenuDropdown>
 
+        {/* Edit menu — matches Win95 Explorer: Undo, Cut, Copy, Paste, Paste Shortcut, Select All, Invert Selection */}
         <Win95MenuDropdown
           label="Edit"
           isOpen={activeMenu === "edit"}
           onOpen={() => handleMenuClick("edit")}
           onHover={() => handleMenuHover("edit")}
         >
+          <Win95MenuAction label="Undo" shortcut="Ctrl+Z" disabled />
+          <Win95MenuSeparator />
           <Win95MenuAction label="Cut" shortcut="Ctrl+X" disabled={!selected} onClick={() => { if (selected) handleCut(selected); closeMenus(); }} />
           <Win95MenuAction label="Copy" shortcut="Ctrl+C" disabled={!selected} onClick={() => { if (selected) handleCopy(selected); closeMenus(); }} />
           <Win95MenuAction label="Paste" shortcut="Ctrl+V" disabled={!clipboard} onClick={() => { handlePaste(); closeMenus(); }} />
+          <Win95MenuAction label="Paste Shortcut" disabled />
           <Win95MenuSeparator />
           <Win95MenuAction label="Select All" shortcut="Ctrl+A" disabled />
+          <Win95MenuAction label="Invert Selection" disabled />
         </Win95MenuDropdown>
 
+        {/* View menu — matches Win95 Explorer exactly: Toolbar, ✓Status Bar, radio icon sizes, Arrange Icons▶, Line up Icons, Refresh, Options */}
         <Win95MenuDropdown
           label="View"
           isOpen={activeMenu === "view"}
           onOpen={() => handleMenuClick("view")}
           onHover={() => handleMenuHover("view")}
         >
-          <Win95MenuAction label="Large Icons" checked={displayMode === "large-icons"} onClick={() => { setDisplayMode("large-icons"); closeMenus(); }} />
-          <Win95MenuAction label="Small Icons" checked={displayMode === "small-icons"} onClick={() => { setDisplayMode("small-icons"); closeMenus(); }} />
-          <Win95MenuAction label="List" checked={displayMode === "list"} onClick={() => { setDisplayMode("list"); closeMenus(); }} />
-          <Win95MenuAction label="Details" checked={displayMode === "details"} onClick={() => { setDisplayMode("details"); closeMenus(); }} />
+          <Win95MenuAction label="Toolbar" checked={false} disabled />
+          <Win95MenuAction label="Status Bar" checked={true} onClick={() => closeMenus()} />
+          <Win95MenuSeparator />
+          <Win95MenuAction label="Large Icons" bullet checked={displayMode === "large-icons"} onClick={() => { setDisplayMode("large-icons"); closeMenus(); }} />
+          <Win95MenuAction label="Small Icons" bullet checked={displayMode === "small-icons"} onClick={() => { setDisplayMode("small-icons"); closeMenus(); }} />
+          <Win95MenuAction label="List" bullet checked={displayMode === "list"} onClick={() => { setDisplayMode("list"); closeMenus(); }} />
+          <Win95MenuAction label="Details" bullet checked={displayMode === "details"} onClick={() => { setDisplayMode("details"); closeMenus(); }} />
+          <Win95MenuSeparator />
+          <Win95MenuSubmenu label="Arrange Icons">
+            <Win95MenuAction label="by Name" disabled />
+            <Win95MenuAction label="by Type" disabled />
+            <Win95MenuAction label="by Size" disabled />
+            <Win95MenuAction label="by Date" disabled />
+            <Win95MenuSeparator />
+            <Win95MenuAction label="Auto Arrange" disabled />
+          </Win95MenuSubmenu>
+          <Win95MenuAction label="Line up Icons" disabled />
           <Win95MenuSeparator />
           <Win95MenuAction label="Refresh" onClick={() => closeMenus()} />
+          <Win95MenuAction label="Options..." disabled />
         </Win95MenuDropdown>
 
         <Win95MenuDropdown
