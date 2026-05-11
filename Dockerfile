@@ -11,7 +11,7 @@ COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 ENV NODE_ENV production
 ENV NEXT_PUBLIC_APP_ENV production
-ENV NEXT_PUBLIC_APP_VERSION 0.1.6
+ENV NEXT_PUBLIC_APP_VERSION 0.1.7
 ENV NEXT_PUBLIC_APP_BUILD 2026.05.11-prod
 ENV NEXT_TELEMETRY_DISABLED 1
 RUN --mount=type=cache,target=/app/.next/cache \
