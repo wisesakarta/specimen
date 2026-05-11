@@ -8,6 +8,164 @@ import type { SovereignRuntimeProps } from "@/runtime/runtime-dispatch";
 import type { VFSNode } from "@/lib/os-config";
 import { cn } from "@/lib/style-composer";
 
+// ─── Win95 MS-DOS Prompt toolbar ─────────────────────────────────────────────
+
+// Each toolbar button: 24×22px raised-bevel, disabled (visual legitimacy only).
+function TbBtn({ title, children }: { title: string; children: React.ReactNode }) {
+  return (
+    <div
+      title={title}
+      aria-label={title}
+      style={{
+        width: 24,
+        height: 22,
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        background: "var(--win-face)",
+        boxShadow: "var(--bevel-raised)",
+        flexShrink: 0,
+        userSelect: "none",
+      }}
+    >
+      {children}
+    </div>
+  );
+}
+
+// Thin Win95 toolbar separator — shadow + highlight ridge.
+function TbSep() {
+  return (
+    <div style={{ display: "flex", gap: 1, margin: "0 3px", alignSelf: "stretch", alignItems: "stretch" }}>
+      <div style={{ width: 1, background: "var(--win-shadow)" }} />
+      <div style={{ width: 1, background: "var(--win-highlight)" }} />
+    </div>
+  );
+}
+
+function MsDosToolbar() {
+  return (
+    <div
+      style={{
+        display: "flex",
+        alignItems: "center",
+        gap: 2,
+        padding: "3px 3px",
+        background: "var(--win-face)",
+        borderBottom: "1px solid var(--win-shadow)",
+        flexShrink: 0,
+        height: 30,
+      }}
+    >
+      {/* Font-size combo box — "Auto" */}
+      <div
+        title="Select font size"
+        style={{
+          display: "flex",
+          alignItems: "center",
+          width: 76,
+          height: 22,
+          background: "var(--win-window)",
+          boxShadow: "var(--bevel-sunken)",
+          flexShrink: 0,
+          overflow: "hidden",
+        }}
+      >
+        <span style={{ flex: 1, padding: "0 4px", fontFamily: "var(--font-shell)", fontSize: 11, color: "var(--win-text)", lineHeight: 1 }}>
+          Auto
+        </span>
+        <div
+          style={{
+            width: 14,
+            height: "100%",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            background: "var(--win-face)",
+            boxShadow: "var(--bevel-raised)",
+            fontSize: 8,
+            color: "var(--win-text)",
+            flexShrink: 0,
+          }}
+        >
+          ▾
+        </div>
+      </div>
+
+      <TbSep />
+
+      {/* Mark — dashed selection rectangle */}
+      <TbBtn title="Mark">
+        <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+          <rect x="1" y="1" width="12" height="12" stroke="#000" strokeWidth="1.5" strokeDasharray="2 1.5" fill="none"/>
+        </svg>
+      </TbBtn>
+
+      {/* Copy — two overlapping pages */}
+      <TbBtn title="Copy">
+        <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+          <rect x="1" y="4" width="8" height="9" fill="white" stroke="#000" strokeWidth="1"/>
+          <rect x="4" y="1" width="8" height="9" fill="white" stroke="#000" strokeWidth="1"/>
+        </svg>
+      </TbBtn>
+
+      {/* Paste — clipboard with page */}
+      <TbBtn title="Paste">
+        <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+          <rect x="1" y="3" width="10" height="10" fill="white" stroke="#000" strokeWidth="1"/>
+          <rect x="4" y="1" width="4" height="4" fill="white" stroke="#000" strokeWidth="1"/>
+          <line x1="3" y1="7" x2="9" y2="7" stroke="#000" strokeWidth="1"/>
+          <line x1="3" y1="9" x2="9" y2="9" stroke="#000" strokeWidth="1"/>
+          <line x1="3" y1="11" x2="7" y2="11" stroke="#000" strokeWidth="1"/>
+        </svg>
+      </TbBtn>
+
+      {/* Full Screen — four corner arrows */}
+      <TbBtn title="Full Screen">
+        <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+          <polygon points="1,1 5,1 1,5" fill="#000"/>
+          <polygon points="13,1 9,1 13,5" fill="#000"/>
+          <polygon points="1,13 5,13 1,9" fill="#000"/>
+          <polygon points="13,13 9,13 13,9" fill="#000"/>
+          <line x1="5" y1="3" x2="9" y2="3" stroke="#000" strokeWidth="1"/>
+          <line x1="5" y1="11" x2="9" y2="11" stroke="#000" strokeWidth="1"/>
+          <line x1="3" y1="5" x2="3" y2="9" stroke="#000" strokeWidth="1"/>
+          <line x1="11" y1="5" x2="11" y2="9" stroke="#000" strokeWidth="1"/>
+        </svg>
+      </TbBtn>
+
+      {/* Properties — document with horizontal lines */}
+      <TbBtn title="Properties">
+        <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+          <rect x="2" y="1" width="10" height="12" fill="white" stroke="#000" strokeWidth="1"/>
+          <line x1="4" y1="5" x2="10" y2="5" stroke="#000" strokeWidth="1"/>
+          <line x1="4" y1="7" x2="10" y2="7" stroke="#000" strokeWidth="1"/>
+          <line x1="4" y1="9" x2="8" y2="9" stroke="#000" strokeWidth="1"/>
+        </svg>
+      </TbBtn>
+
+      {/* Font — bold serif "A" */}
+      <TbBtn title="Font">
+        <svg width="14" height="14" viewBox="0 0 14 14">
+          <text x="2" y="12" fontFamily="serif" fontSize="12" fontWeight="bold" fill="#000">A</text>
+        </svg>
+      </TbBtn>
+
+      {/* Scroll marks / screen settings */}
+      <TbBtn title="Screen settings">
+        <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+          <rect x="1" y="2" width="12" height="9" fill="white" stroke="#000" strokeWidth="1"/>
+          <rect x="4" y="11" width="6" height="2" fill="white" stroke="#000" strokeWidth="1"/>
+          <line x1="3" y1="5" x2="11" y2="5" stroke="#000" strokeWidth="1"/>
+          <line x1="3" y1="7" x2="11" y2="7" stroke="#000" strokeWidth="1"/>
+        </svg>
+      </TbBtn>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+
 const SPECIMEN_MSDOS_BANNER = [
   "Specimen 95 [Version 2.1.0]",
   "(C) Technical Standard. All rights reserved.",
@@ -434,8 +592,8 @@ export default function TerminalApp({
 
     const terminalInstance = new Terminal({
       cursorBlink: true,
-      cursorStyle: "block",
-      cursorInactiveStyle: "block",
+      cursorStyle: "underline",
+      cursorInactiveStyle: "underline",
       theme: {
         background: "#000000",
         foreground: "#C0C0C0",
@@ -527,8 +685,13 @@ export default function TerminalApp({
   }, [isVisible]);
 
   return (
-    <div className="flex flex-col h-full overflow-hidden bg-black">
-      <div className="flex-1 m-0.5 p-1 win-sunken overflow-hidden relative border-none bg-black">
+    <div className="flex flex-col h-full overflow-hidden" style={{ background: "var(--win-face)" }}>
+
+      {/* Win95 MS-DOS Prompt toolbar — Auto font-size combo + 7 icon buttons */}
+      <MsDosToolbar />
+
+      {/* Terminal viewport — sunken inset, black background */}
+      <div className="flex-1 overflow-hidden relative" style={{ margin: 2, background: "#000", boxShadow: "var(--bevel-sunken)" }}>
         <div ref={viewportContainerRef} className="w-full h-full overflow-hidden" />
       </div>
 
