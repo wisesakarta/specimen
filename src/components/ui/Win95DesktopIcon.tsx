@@ -1,6 +1,7 @@
 "use client";
 
 import { cn } from "@/lib/style-composer";
+import { resolveWin95Icon } from "@/lib/icon-map";
 import Win95Icon from "./Win95Icon";
 
 interface Win95DesktopIconProps {
@@ -12,12 +13,19 @@ interface Win95DesktopIconProps {
   active?: boolean;
 }
 
-/**
- * Win95DesktopIcon
- * Canonical desktop icon tile. When selected, the label paints with the
- * standard selection background (navy) and white text, with a 1px dotted
- * focus rectangle around the label — matching the Windows 95 shell behavior.
- */
+// Checkerboard gradient identical to Codepen's @mixin ch(color, 1px, transparent).
+// Two 45° gradients offset by 1px create a 2×2px tile where alternating pixels
+// are the selection color — the canonical Win95 dither pattern.
+const DITHER_STYLE = {
+  backgroundColor: "transparent",
+  backgroundImage: [
+    "linear-gradient(45deg, #000080 25%, transparent 25%, transparent 75%, #000080 75%, #000080)",
+    "linear-gradient(45deg, #000080 25%, transparent 25%, transparent 75%, #000080 75%, #000080)",
+  ].join(", "),
+  backgroundSize: "2px 2px",
+  backgroundPosition: "0 0, 1px 1px",
+} as const;
+
 export default function Win95DesktopIcon({
   label,
   icon,
@@ -26,42 +34,45 @@ export default function Win95DesktopIcon({
   className,
   active = false,
 }: Win95DesktopIconProps) {
+  // Resolve the PNG path so we can use it as a CSS mask — restricts the
+  // dither to the icon's opaque pixels only (not the transparent surround).
+  const isPath = icon.startsWith("/") || icon.endsWith(".png") || icon.startsWith("data:");
+  const iconSrc = isPath ? icon : (resolveWin95Icon(icon, 32) ?? "");
+
   return (
     <div
       className={cn(
         "flex flex-col items-center gap-1 w-20 p-2 cursor-default select-none",
         className
       )}
-      onClick={(e) => {
-        e.stopPropagation();
-        onClick?.();
-      }}
-      onDoubleClick={(e) => {
-        e.stopPropagation();
-        onDoubleClick?.();
-      }}
+      onClick={(e) => { e.stopPropagation(); onClick?.(); }}
+      onDoubleClick={(e) => { e.stopPropagation(); onDoubleClick?.(); }}
     >
-      {/* Icon tile — 32×32 with dithered selection wash when active */}
+      {/* Icon area — 40×40 container, 32×32 icon at full opacity */}
       <div className="relative" style={{ width: 40, height: 40, display: "flex", alignItems: "center", justifyContent: "center" }}>
-        <Win95Icon
-          icon={icon}
-          size={32}
-          className={cn(active && "opacity-60")}
-        />
-        {active && (
+        <Win95Icon icon={icon} size={32} />
+
+        {/* Win95 dither overlay — checkerboard masked to the icon silhouette */}
+        {active && iconSrc && (
           <div
             aria-hidden
             className="absolute inset-0 pointer-events-none"
             style={{
-              background: "var(--win-select-bg)",
-              opacity: 0.35,
-              mixBlendMode: "multiply",
+              ...DITHER_STYLE,
+              maskImage: `url(${iconSrc})`,
+              maskSize: "32px 32px",
+              maskPosition: "center",
+              maskRepeat: "no-repeat",
+              WebkitMaskImage: `url(${iconSrc})`,
+              WebkitMaskSize: "32px 32px",
+              WebkitMaskPosition: "center",
+              WebkitMaskRepeat: "no-repeat",
             }}
           />
         )}
       </div>
 
-      {/* Label — canonical white-on-teal with 1px text shadow when unselected */}
+      {/* Label — solid navy bg + white text + dotted outline when selected */}
       <div
         className="relative px-1 text-center break-words max-w-full"
         style={{
