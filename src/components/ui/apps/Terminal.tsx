@@ -192,6 +192,7 @@ export default function TerminalApp({
   vfs = [],
   runtimeSnapshots = [],
   onOpenNode,
+  onOpenApp,
   onCloseApp,
   onUpdateVFS,
   runtimeLogs,
@@ -333,12 +334,19 @@ export default function TerminalApp({
         term.writeln(" Help      - List available instructions");
         term.writeln(" Cls       - Clear terminal display");
         term.writeln(" Ver       - Display runtime identification");
+        term.writeln(" Date      - Display current date");
+        term.writeln(" Time      - Display current time");
+        term.writeln(" Echo      - Print text to output");
         term.writeln(" Dir       - List Vfs directory contents");
         term.writeln(" Cd        - Traverse Vfs path stack");
+        term.writeln(" Tree      - Display directory tree");
         term.writeln(" Mkdir     - Create Vfs directory node");
         term.writeln(" Del       - Remove Vfs node");
+        term.writeln(" Copy      - Duplicate Vfs node");
+        term.writeln(" Ren       - Rename Vfs node");
         term.writeln(" Type      - Stream Vfs node content to output");
         term.writeln(" Edit      - Launch editor citizen for node");
+        term.writeln(" Start     - Launch application citizen");
         term.writeln(" Tasks     - List active workstation tasks");
         term.writeln(" Kill      - Terminate a task by index");
         term.writeln(" Syslog    - View system activity logs");
@@ -545,6 +553,127 @@ export default function TerminalApp({
         setIsMonitorActive(nextState);
         lastProcessedLogIndex.current = runtimeLogs?.length || 0;
         term.writeln(` Monitor mode: ${nextState ? "ON" : "OFF"}`);
+        break;
+      }
+
+      case "echo": {
+        if (instructionArguments.length === 0) {
+          term.writeln(" ECHO is on.");
+        } else {
+          term.writeln(` ${instructionArguments.join(" ")}`);
+        }
+        break;
+      }
+
+      case "date": {
+        const d = new Date();
+        const days = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+        const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+        term.writeln(` Current date is ${days[d.getDay()]} ${months[d.getMonth()]} ${String(d.getDate()).padStart(2, "0")} ${d.getFullYear()}`);
+        break;
+      }
+
+      case "time": {
+        const t = new Date();
+        const h = String(t.getHours()).padStart(2, "0");
+        const m = String(t.getMinutes()).padStart(2, "0");
+        const s = String(t.getSeconds()).padStart(2, "0");
+        term.writeln(` Current time is ${h}:${m}:${s}`);
+        break;
+      }
+
+      case "tree": {
+        const printTree = (nodes: VFSNode[], depth: number) => {
+          nodes.forEach((node, i) => {
+            const isLast = i === nodes.length - 1;
+            const prefix = "    ".repeat(depth) + (depth > 0 ? (isLast ? "└── " : "├── ") : "");
+            term.writeln(` ${prefix}${node.name}`);
+            if (node.type === "folder" && node.children?.length) {
+              printTree(node.children, depth + 1);
+            }
+          });
+        };
+        const startNodes = resolveCurrentDirectoryNodes();
+        term.writeln(` ${resolvePromptString().split(">")[0]}`);
+        printTree(startNodes, 0);
+        break;
+      }
+
+      case "copy": {
+        if (instructionArguments.length < 2) {
+          term.writeln(" Usage: COPY <source> <destination>");
+          break;
+        }
+        const [srcName, dstName] = instructionArguments;
+        const nodes = resolveCurrentDirectoryNodes();
+        const srcNode = findVfsNodeByName(nodes, srcName);
+        if (!srcNode) {
+          term.writeln(` File not found - ${srcName}`);
+          break;
+        }
+        if (onUpdateVFS) {
+          onUpdateVFS(prev => {
+            const insertCopy = (nodes: VFSNode[], stack: VFSNode[]): VFSNode[] => {
+              if (stack.length === 0) {
+                if (nodes.some(n => n.name.toLowerCase() === dstName.toLowerCase())) return nodes;
+                return [...nodes, { ...srcNode, id: `node-${Date.now()}`, name: dstName }];
+              }
+              const [head, ...tail] = stack;
+              return nodes.map(n => n.id === head.id ? { ...n, children: insertCopy(n.children || [], tail) } : n);
+            };
+            return insertCopy(prev, vfsPathStack.current);
+          });
+          term.writeln(`        1 file(s) copied.`);
+        }
+        break;
+      }
+
+      case "ren":
+      case "rename": {
+        if (instructionArguments.length < 2) {
+          term.writeln(" Usage: REN <oldname> <newname>");
+          break;
+        }
+        const [oldName, newName] = instructionArguments;
+        if (onUpdateVFS) {
+          onUpdateVFS(prev => {
+            const doRename = (nodes: VFSNode[], stack: VFSNode[]): VFSNode[] => {
+              if (stack.length === 0) {
+                return nodes.map(n => n.name.toLowerCase() === oldName.toLowerCase() ? { ...n, name: newName } : n);
+              }
+              const [head, ...tail] = stack;
+              return nodes.map(n => n.id === head.id ? { ...n, children: doRename(n.children || [], tail) } : n);
+            };
+            return doRename(prev, vfsPathStack.current);
+          });
+          term.writeln(` ${oldName} renamed to ${newName}`);
+        }
+        break;
+      }
+
+      case "start": {
+        if (instructionArguments.length === 0) {
+          term.writeln(" Usage: START <app>");
+          break;
+        }
+        const appArg = instructionArguments[0].toLowerCase();
+        const appMap: Record<string, string> = {
+          notepad: "NOTEPAD",
+          paint: "JSPAINT",
+          terminal: "TERMINAL",
+          doom: "DOOM",
+          skifree: "SKIFREE",
+          explorer: "EXPLORER",
+          browser: "BROWSER",
+          winamp: "WEBAMP",
+        };
+        const appType = appMap[appArg];
+        if (appType && onOpenApp) {
+          onOpenApp(appType as any, appArg.charAt(0).toUpperCase() + appArg.slice(1));
+          term.writeln(` Launching ${appArg}...`);
+        } else {
+          term.writeln(` Cannot start '${appArg}'. Recognized apps: ${Object.keys(appMap).join(", ")}`);
+        }
         break;
       }
 

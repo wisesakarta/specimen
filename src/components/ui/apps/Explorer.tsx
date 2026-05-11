@@ -288,9 +288,27 @@ export default function Explorer({ vfs, initialData, runtimes, recents, onOpenNo
 
   const items = useMemo<DisplayItem[]>(() => {
     if (view.kind === "my-computer") {
-      // Canonical Win95 "My Computer" shows disk drives and system folders.
-      // In Specimen, this maps to VFS root folders (My Documents, etc.)
-      // Exclude "My Computer" itself to prevent circular navigation.
+      // Virtual drive section — Win95 canonical ordering: drives first, system folders below.
+      const drives: DisplayItem[] = [
+        {
+          kind: "vfolder" as const,
+          id: "mycomputer-c-drive",
+          name: "(C:) Specimen",
+          iconSrc: "/win95-icons/Computer_32x32_4.png",
+          view: { kind: "desktop" as const },
+        },
+      ];
+      // System folders section
+      const systemFolders: DisplayItem[] = [
+        {
+          kind: "vfolder" as const,
+          id: "mycomputer-control-panel",
+          name: "Control Panel",
+          iconSrc: "/win95-icons/start-settings-32x32.png",
+          view: { kind: "active-sessions" as const },
+        },
+      ];
+      // VFS root folders (My Documents, etc.) — exclude trash and self
       const vfsFolders: DisplayItem[] = vfs
         .filter(n => n.type === "folder" && n.id !== "desktop-trash" && n.id !== "desktop-mycomputer")
         .map(n => ({
@@ -300,7 +318,7 @@ export default function Explorer({ vfs, initialData, runtimes, recents, onOpenNo
           iconSrc: iconSrc(n.icon, 32),
           view: { kind: "vfs" as const, node: n },
         }));
-      return vfsFolders;
+      return [...drives, ...systemFolders, ...vfsFolders];
     }
     if (view.kind === "desktop")         return vfs.map(vfsToItem);
     if (view.kind === "active-sessions") return runtimes.map((rt) => ({

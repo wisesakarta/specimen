@@ -77,9 +77,22 @@
 	<script type="module" src="src/theme.js"></script>
 
 	<!-- Sovereign Preload: Neutralizing the Waterfall -->
+	<!-- Stylesheets -->
 	<link rel="preload" href="styles/layout.css" as="style">
 	<link rel="preload" href="lib/os-gui/build/layout.css" as="style">
+	<!-- Heavy lib scripts: parallel burst to eliminate sequential download waterfall -->
 	<link rel="preload" href="lib/jquery-3.4.1.min.js" as="script">
+	<link rel="preload" href="lib/pdf.js/build/pdf.js" as="script">
+	<link rel="preload" href="lib/anypalette-0.6.0.js" as="script">
+	<link rel="preload" href="lib/tracky-mouse/core/tracky-mouse.js" as="script">
+	<link rel="preload" href="lib/UTIF.js" as="script">
+	<link rel="preload" href="lib/os-gui/$Window.js" as="script">
+	<link rel="preload" href="lib/imagetracer_v1.2.5.js" as="script">
+	<link rel="preload" href="lib/UPNG.js" as="script">
+	<link rel="preload" href="lib/pako-2.0.3.min.js" as="script">
+	<link rel="preload" href="lib/os-gui/MenuBar.js" as="script">
+	<link rel="preload" href="lib/os-gui/parse-theme.js" as="script">
+	<!-- Non-module app scripts -->
 	<link rel="preload" href="src/app-localization.js" as="script">
 	
 	<link rel="modulepreload" href="src/theme.js">
