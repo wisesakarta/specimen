@@ -1,10 +1,11 @@
-FROM node:20-alpine AS deps
+# syntax=docker/dockerfile:1
+FROM node:22-alpine AS deps
 RUN apk add --no-cache libc6-compat
 WORKDIR /app
 COPY package.json package-lock.json ./
 RUN npm install
 
-FROM node:20-alpine AS builder
+FROM node:22-alpine AS builder
 WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
@@ -13,9 +14,10 @@ ENV NEXT_PUBLIC_APP_ENV production
 ENV NEXT_PUBLIC_APP_VERSION 0.1.6
 ENV NEXT_PUBLIC_APP_BUILD 2026.05.11-prod
 ENV NEXT_TELEMETRY_DISABLED 1
-RUN npm run build
+RUN --mount=type=cache,target=/app/.next/cache \
+    npm run build
 
-FROM node:20-alpine AS runner
+FROM node:22-alpine AS runner
 WORKDIR /app
 
 RUN apk add --no-cache python3 py3-pip brotli-dev gcc musl-dev python3-dev \
