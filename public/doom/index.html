@@ -3,20 +3,136 @@
 <head>
   <meta charset="utf-8">
   <title>DOOM</title>
+  <link rel="stylesheet" href="https://v8.js-dos.com/latest/js-dos.css">
+  <script src="https://v8.js-dos.com/latest/js-dos.js"></script>
   <style>
     html, body { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; background: #000; }
     #dos { width: 100%; height: 100%; }
-    .jsdos-player-container { width: 100% !important; height: 100% !important; }
+
+    @font-face {
+      font-family: 'W95FA';
+      src: url('/fonts/W95FA-Regular.woff2') format('woff2');
+      font-weight: 400;
+      font-display: block;
+    }
+
+    /* ── Win95 override for js-dos v8 chrome ──────────────────────────────── */
+
+    /* Win95 canonical palette via DaisyUI oklch channel vars.
+       #c0c0c0 ≈ oklch(75.27% 0 0),  #808080 ≈ oklch(52.73% 0 0) */
+    .jsdos-rso {
+      --n:  0.7527 0 0;
+      --nf: 0.7527 0 0;
+      --nc: 0 0 0;
+      --b1: 0.7527 0 0;
+      --b2: 0.7527 0 0;
+      --b3: 0.5273 0 0;
+      --bc: 0 0 0;
+    }
+
+    /* Win95 has zero border-radius everywhere */
+    .jsdos-rso,
+    .jsdos-rso * { border-radius: 0 !important; }
+
+    /* Win95 canonical typeface for all js-dos UI text */
+    .jsdos-rso,
+    .jsdos-rso * {
+      font-family: 'W95FA', 'MS Sans Serif', Tahoma, sans-serif !important;
+    }
+
+    /* ── Sidebar: Win95 vertical toolbar ─────────────────────────────────── */
+    /* The sidebar stays visible — sensitivity, save, fullscreen are essential.
+       Restyled as a Win95 raised panel on the left edge. */
+    .jsdos-rso .sidebar,
+    .jsdos-rso .sidebar-thin {
+      background: #c0c0c0 !important;
+      /* Right edge: outer shadow + inner highlight — Win95 raised panel border */
+      border-right: 1px solid #808080 !important;
+      box-shadow: inset -1px 0 0 #ffffff !important;
+    }
+
+    /* Sidebar buttons — flat at rest, raised on hover, pressed on active */
+    .jsdos-rso .sidebar-button {
+      background: #c0c0c0 !important;
+      color: #000000 !important;
+      border: 1px solid transparent !important;
+      margin: 1px 2px !important;
+      padding: 3px !important;
+      transition: none !important;
+    }
+    .jsdos-rso .sidebar-button:hover {
+      border-color: #ffffff #808080 #808080 #ffffff !important;
+      box-shadow: none !important;
+    }
+    .jsdos-rso .sidebar-button:active,
+    .jsdos-rso .sidebar-highlight {
+      border-color: #808080 #ffffff #ffffff #808080 !important;
+      background: #c0c0c0 !important;
+    }
+
+    /* SVG icons: js-dos uses stroke-based Lucide icons.
+       On dark bg they're white — flip to black for Win95 silver surface. */
+    .jsdos-rso .sidebar svg {
+      stroke: #000000 !important;
+      fill: none !important;
+      color: #000000 !important;
+    }
+    /* Some icons use fill (e.g. filled variants) */
+    .jsdos-rso .sidebar svg[fill]:not([fill="none"]) {
+      fill: #000000 !important;
+      stroke: none !important;
+    }
+
+    /* Sensitivity slider — Win95 track style */
+    .jsdos-rso .sidebar-slider {
+      background: transparent !important;
+    }
+    .jsdos-rso .sidebar-slider input[type="range"] {
+      accent-color: #000080 !important;
+      cursor: pointer !important;
+    }
+
+    /* Badge / indicator dots on sidebar buttons */
+    .jsdos-rso .sidebar-badge {
+      background: #000080 !important;
+      color: #ffffff !important;
+    }
+
+    /* ── Mouse pointer-lock overlay — Win95 modal dialog ─────────────────── */
+    /* js-dos renders this as an .absolute.inset-0 flex container */
+    .jsdos-rso .absolute.inset-0 {
+      background: rgba(0, 0, 0, 0.45) !important;
+      display: flex !important;
+      align-items: center !important;
+      justify-content: center !important;
+    }
+
+    /* Inner content card */
+    .jsdos-rso .absolute.inset-0 > * {
+      background: #c0c0c0 !important;
+      color: #000000 !important;
+      border: 2px solid !important;
+      border-color: #ffffff #808080 #808080 #ffffff !important;
+      box-shadow: 2px 2px 0 #000000 !important;
+      padding: 16px 24px !important;
+      text-align: center !important;
+    }
+
+    /* Kill any white text that bleeds through the card */
+    .jsdos-rso .absolute.inset-0 p,
+    .jsdos-rso .absolute.inset-0 span,
+    .jsdos-rso .absolute.inset-0 div {
+      color: #000000 !important;
+    }
   </style>
-  <link rel="stylesheet" href="https://v8.js-dos.com/latest/js-dos.css">
-  <script src="https://v8.js-dos.com/latest/js-dos.js"></script>
 </head>
 <body>
   <div id="dos"></div>
   <script>
-    emulators.pathPrefix = "https://v8.js-dos.com/latest/";
+    const isTouchDevice = ("ontouchstart" in window) || (navigator.maxTouchPoints > 0);
     Dos(document.getElementById("dos"), {
-      url: "https://cdn.dos.zone/original/2X/2/2b27c0e15b7e14092e3cf5124ba78e3ab0453328.jsdos",
+      url: "./doom.jsdos",
+      autoStart: !isTouchDevice,
     });
   </script>
 </body>

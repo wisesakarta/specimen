@@ -1,0 +1,181 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>SkiFree</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=0">
+  <style>
+    @font-face {
+      font-family: 'W95FA';
+      src: url('/fonts/W95FA-Regular.woff2') format('woff2');
+      font-weight: 400;
+      font-display: block;
+    }
+
+    html, body {
+      margin: 0;
+      padding: 0;
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      background: #ffffff;
+    }
+
+    #skifree-canvas {
+      display: block;
+      width: 100%;
+      height: 100%;
+      vertical-align: top;
+    }
+
+    /* ── Win95 HUD panel ─────────────────────────────────────────────────── */
+    #sf-hud {
+      position: absolute;
+      top: 4px;
+      right: 4px;
+      background: #c0c0c0;
+      border: 2px solid;
+      border-color: #ffffff #808080 #808080 #ffffff;
+      box-shadow: 1px 1px 0 #000000;
+      font-family: 'W95FA', 'MS Sans Serif', Tahoma, sans-serif;
+      font-size: 11px;
+      color: #000000;
+      line-height: 1.7;
+      padding: 3px 8px 4px;
+      min-width: 178px;
+      pointer-events: none;
+      user-select: none;
+      z-index: 10;
+    }
+
+    #sf-hud-title {
+      font-weight: bold;
+      border-bottom: 1px solid #808080;
+      margin-bottom: 2px;
+      padding-bottom: 1px;
+    }
+
+    #sf-hud-credit {
+      border-top: 1px solid #808080;
+      margin-top: 2px;
+      padding-top: 1px;
+      font-size: 10px;
+      color: #444444;
+    }
+
+    /* ── Win95 game-over dialog ──────────────────────────────────────────── */
+    #sf-gameover {
+      display: none;
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      background: #c0c0c0;
+      border: 2px solid;
+      border-color: #ffffff #808080 #808080 #ffffff;
+      box-shadow: 2px 2px 0 #000000;
+      font-family: 'W95FA', 'MS Sans Serif', Tahoma, sans-serif;
+      font-size: 11px;
+      color: #000000;
+      z-index: 20;
+      min-width: 220px;
+    }
+
+    #sf-gameover-titlebar {
+      background: #000080;
+      color: #ffffff;
+      font-family: 'W95FA', 'MS Sans Serif', Tahoma, sans-serif;
+      font-size: 11px;
+      font-weight: bold;
+      padding: 2px 4px;
+      user-select: none;
+    }
+
+    #sf-gameover-body {
+      padding: 16px 20px 12px;
+      text-align: center;
+      line-height: 2;
+    }
+  </style>
+</head>
+<body>
+  <canvas id="skifree-canvas" tabindex="0"></canvas>
+
+  <!-- Win95 HUD overlay — fed by canvas fillText intercept below -->
+  <div id="sf-hud">
+    <div id="sf-hud-title">SkiFree</div>
+    <div id="sf-controls">Use the mouse or WASD</div>
+    <div id="sf-distance">Travelled 0.0m</div>
+    <div id="sf-lives">Skiers left: 5</div>
+    <div id="sf-score">High Score: 0</div>
+    <div id="sf-speed">Current Speed: 5</div>
+    <div id="sf-hud-credit">Dan Hough (@basicallydan)</div>
+  </div>
+
+  <!-- Win95 game-over dialog -->
+  <div id="sf-gameover">
+    <div id="sf-gameover-titlebar">SkiFree</div>
+    <div id="sf-gameover-body">
+      <div>Game over!</div>
+      <div style="font-size:10px;color:#444;margin-top:4px;">Press Space to restart</div>
+    </div>
+  </div>
+
+  <script>
+    // ── Canvas fillText intercept ────────────────────────────────────────────
+    // The game's infoBox draws state text onto canvas via fillText with
+    // '11px monospace'. We intercept those calls and route them to the Win95
+    // HTML overlay instead, suppressing the canvas rendering entirely.
+    // All other fillText calls (if any) pass through unmodified.
+    (function () {
+      const sfDistance  = document.getElementById('sf-distance');
+      const sfLives     = document.getElementById('sf-lives');
+      const sfScore     = document.getElementById('sf-score');
+      const sfSpeed     = document.getElementById('sf-speed');
+      const sfGameover  = document.getElementById('sf-gameover');
+
+      const _origGetContext = HTMLCanvasElement.prototype.getContext;
+
+      HTMLCanvasElement.prototype.getContext = function (contextId) {
+        const ctx = _origGetContext.apply(this, arguments);
+
+        if (contextId === '2d' && ctx && !ctx._win95Patched) {
+          ctx._win95Patched = true;
+          const _origFillText = ctx.fillText.bind(ctx);
+
+          ctx.fillText = function (text, x, y, maxWidth) {
+            // infoBox exclusively uses '11px monospace' — intercept those calls.
+            if (ctx.font && ctx.font.indexOf('monospace') !== -1) {
+              if      (text.indexOf('Travelled')    === 0) { if (sfDistance) sfDistance.textContent = text; }
+              else if (text.indexOf('Skiers left')  === 0) { if (sfLives)    sfLives.textContent    = text; }
+              else if (text.indexOf('High Score')   === 0) { if (sfScore)    sfScore.textContent    = text; }
+              else if (text.indexOf('Current Speed') === 0){ if (sfSpeed)    sfSpeed.textContent    = text; }
+              else if (text === 'Game over!')              { if (sfGameover) sfGameover.style.display = 'block'; }
+              // All other monospace lines (title, controls, credit, restart hint)
+              // are suppressed — the HTML overlay handles them statically.
+              return;
+            }
+            // Non-monospace fillText passes through normally.
+            maxWidth !== undefined
+              ? _origFillText(text, x, y, maxWidth)
+              : _origFillText(text, x, y);
+          };
+        }
+
+        return ctx;
+      };
+
+      // Dismiss the game-over dialog when Space is pressed (game resets internally).
+      document.addEventListener('keydown', function (e) {
+        if (e.code === 'Space' && sfGameover && sfGameover.style.display !== 'none') {
+          sfGameover.style.display = 'none';
+        }
+      });
+    }());
+  </script>
+
+  <!-- dist/skifree.js is the esbuild bundle — includes hammerjs, br-mousetrap. -->
+  <!-- Source edits in js/ will take effect on next: npm run build             -->
+  <script src="dist/skifree.js"></script>
+</body>
+</html>

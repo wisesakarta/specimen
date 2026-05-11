@@ -1,11 +1,29 @@
 import { writeFile, mkdir, readFile } from "node:fs/promises";
 import path from "node:path";
 
-const PRODUCTION_BASE = "https://specimen.krtalabs.xyz";
+const PRODUCTION_BASE = process.env.API_URL || "https://specimen.krtalabs.xyz";
 const ANALYZE_ENDPOINT = `${PRODUCTION_BASE}/api/analyze-url`;
-const DOWNLOAD_ENDPOINT = `${PRODUCTION_BASE}/api/font-download`;
+const LEGACY_DOWNLOAD_ENDPOINT = `${PRODUCTION_BASE}/api/font-download`;
+const JOBS_ENDPOINT = `${PRODUCTION_BASE}/api/jobs`;
 const REQUEST_TIMEOUT_MS = 180_000;
 const INTER_REQUEST_DELAY_MS = 2000;
+const LEGACY_DIRECT_CHUNK_SIZE = Math.max(1, Number.parseInt(process.env.LEGACY_DIRECT_CHUNK_SIZE || "8", 10) || 8);
+type DownloadTransport = "jobs" | "legacy";
+
+const toSafeFileToken = (value: string): string =>
+  value
+    .trim()
+    .toLowerCase()
+    .replace(/^https?:\/\//, "")
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+
+const CHECKPOINT_FILE =
+  process.env.CHECKPOINT_FILE ||
+  `production-e2e-checkpoint-${toSafeFileToken(PRODUCTION_BASE)}.json`;
+const CHECKPOINT_PATH = path.join("tasks", "reports", CHECKPOINT_FILE);
+const DOWNLOAD_TRANSPORT_OVERRIDE =
+  process.env.DOWNLOAD_TRANSPORT?.trim().toLowerCase() || "";
 
 type FoundryTestCase = {
   id: string;
@@ -90,7 +108,7 @@ const FOUNDRY_CASES: FoundryTestCase[] = [
   { id: "sharptype", name: "Sharp Type", url: "https://www.sharptype.co/typefaces/alpes", minFonts: 1 },
   { id: "sourcetype", name: "Source Type", url: "https://sourcetype.com/typefaces/15263/un-11", minFonts: 1 },
   { id: "superiortype", name: "Superior Type", url: "https://superiortype.com/fonts/raptor-v3", minFonts: 1 },
-  { id: "swisstypefaces", name: "Swiss Typefaces", url: "https://www.swisstypefaces.com/fonts/sangbleu/", minFonts: 1 },
+  { id: "swisstypefaces", name: "Swiss Typefaces", url: "https://www.swisstypefaces.com/fonts/simplon/#font", minFonts: 1 },
   { id: "thedesignersfoundry", name: "The Designers Foundry", url: "https://www.thedesignersfoundry.com/typeface/tocapu", minFonts: 1 },
   { id: "type-department", name: "Type Department", url: "https://type-department.com/products/non-sans", minFonts: 1 },
   { id: "typefaces-pizza", name: "Typefaces Pizza", url: "https://typefaces.pizza/type/westy", minFonts: 1 },
@@ -125,9 +143,47 @@ const isInterceptPlaceholder = (url: unknown): boolean =>
     url.trim().toLowerCase() === "interception-mode");
 
 const isDirectUrl = (url: unknown): url is string =>
-  typeof url === "string" && /^https?:\/\//i.test(url.trim());
+  typeof url === "string" &&
+  (/^https?:\/\//i.test(url.trim()) || /^inline-font:\/\/[a-z0-9]+$/i.test(url.trim()));
 
-const CHECKPOINT_PATH = path.join("tasks", "reports", "production-e2e-checkpoint.json");
+const compactError = (value: unknown, maxLength = 220): string => {
+  const text = typeof value === "string" ? value : JSON.stringify(value);
+  const singleLine = text.replace(/\s+/g, " ").trim();
+  return singleLine.length > maxLength ? `${singleLine.slice(0, maxLength)}...` : singleLine;
+};
+
+let cachedDownloadTransport: DownloadTransport | undefined;
+
+const resolveDownloadTransport = async (): Promise<DownloadTransport> => {
+  if (cachedDownloadTransport) return cachedDownloadTransport;
+
+  if (DOWNLOAD_TRANSPORT_OVERRIDE === "jobs" || DOWNLOAD_TRANSPORT_OVERRIDE === "legacy") {
+    cachedDownloadTransport = DOWNLOAD_TRANSPORT_OVERRIDE;
+    return cachedDownloadTransport;
+  }
+
+  try {
+    const jobsProbe = await fetchWithTimeout(JOBS_ENDPOINT, { method: "GET" }, 10_000);
+    if (jobsProbe.status !== 404) {
+      cachedDownloadTransport = "jobs";
+      return cachedDownloadTransport;
+    }
+  } catch {
+    // best effort; fallback probe below
+  }
+
+  try {
+    const legacyProbe = await fetchWithTimeout(LEGACY_DOWNLOAD_ENDPOINT, { method: "GET" }, 10_000);
+    if (legacyProbe.status !== 404) {
+      cachedDownloadTransport = "legacy";
+      return cachedDownloadTransport;
+    }
+  } catch {
+    // handled by hard failure below
+  }
+
+  throw new Error(`No supported download endpoint detected at ${PRODUCTION_BASE}.`);
+};
 
 const loadCheckpoint = async (): Promise<Checkpoint | undefined> => {
   try {
@@ -208,9 +264,194 @@ async function runAnalyzePhase(testCase: FoundryTestCase): Promise<PhaseResult &
   }
 }
 
+async function runJobsTransportDownload(payload: Record<string, unknown>, started: number): Promise<PhaseResult & { downloadData?: any }> {
+  const dispatchRes = await fetchWithTimeout(
+    JOBS_ENDPOINT,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    },
+    30_000
+  );
+
+  if (!dispatchRes.ok) {
+    const err = await dispatchRes.text().catch(() => "");
+    return {
+      phase: "download",
+      status: "fail",
+      durationMs: Date.now() - started,
+      error: `Job dispatch failed: ${dispatchRes.status} ${compactError(err)}`,
+    };
+  }
+
+  const jobInfo = await dispatchRes.json();
+  const jobId = jobInfo.jobId;
+  if (!jobId) {
+    return {
+      phase: "download",
+      status: "fail",
+      durationMs: Date.now() - started,
+      error: "No jobId returned from dispatcher.",
+    };
+  }
+
+  let finalStatus = "";
+  let jobResult: any = null;
+  let attempts = 0;
+  while (attempts < 900) {
+    await sleep(2000);
+    attempts++;
+
+    let statusRes;
+    let pollRetries = 0;
+    while (pollRetries < 3) {
+      try {
+        statusRes = await fetchWithTimeout(`${JOBS_ENDPOINT}/${jobId}`, { method: "GET" }, 10_000);
+        if (statusRes.ok) break;
+      } catch (e) {
+        if (pollRetries === 2) throw e;
+      }
+      pollRetries++;
+      await sleep(1000);
+    }
+
+    if (!statusRes || !statusRes.ok) continue;
+
+    const statusData = await statusRes.json();
+    finalStatus = statusData.status;
+
+    if (finalStatus === "SUCCESS") {
+      jobResult = statusData.result;
+      break;
+    }
+    if (finalStatus === "FAILED") {
+      return {
+        phase: "download",
+        status: "fail",
+        durationMs: Date.now() - started,
+        error: compactError(statusData.error || "Job failed internally."),
+      };
+    }
+  }
+
+  if (finalStatus !== "SUCCESS") {
+    return {
+      phase: "download",
+      status: "timeout",
+      durationMs: Date.now() - started,
+      error: "Job polling timed out.",
+    };
+  }
+
+  let dlRes;
+  let dlRetries = 0;
+  while (dlRetries < 3) {
+    try {
+      dlRes = await fetchWithTimeout(`${JOBS_ENDPOINT}/${jobId}/download`, { method: "GET" }, 60_000);
+      if (dlRes.ok) break;
+    } catch (e) {
+      if (dlRetries === 2) throw e;
+    }
+    dlRetries++;
+    await sleep(2000);
+  }
+
+  if (!dlRes || !dlRes.ok) {
+    return {
+      phase: "download",
+      status: "fail",
+      durationMs: Date.now() - started,
+      error: `Materialization failed: ${dlRes?.status || "fetch failed"}`,
+    };
+  }
+
+  const contentType = dlRes.headers.get("content-type") || "";
+  if (!contentType.includes("application/zip")) {
+    return {
+      phase: "download",
+      status: "fail",
+      durationMs: Date.now() - started,
+      error: `Unexpected content type: ${contentType}`,
+    };
+  }
+
+  const buffer = await dlRes.arrayBuffer();
+  const disposition = dlRes.headers.get("content-disposition") || "";
+  const fileMatch = disposition.match(/filename="([^"]+)"/);
+
+  return {
+    phase: "download",
+    status: "pass",
+    durationMs: Date.now() - started,
+    data: { receivedBytes: buffer.byteLength, contentType },
+    downloadData: {
+      receivedBytes: buffer.byteLength,
+      contentType,
+      zipFile: fileMatch?.[1] || "unknown.zip",
+      downloadedCount: jobResult?.downloadedCount || jobResult?.downloaded?.length || 0,
+    },
+  };
+}
+
+async function runLegacyTransportDownload(
+  payload: Record<string, unknown>,
+  requestedFontCount: number,
+  started: number
+): Promise<PhaseResult & { downloadData?: any }> {
+  const legacyRes = await fetchWithTimeout(
+    LEGACY_DOWNLOAD_ENDPOINT,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    },
+    REQUEST_TIMEOUT_MS
+  );
+
+  if (!legacyRes.ok) {
+    const err = await legacyRes.text().catch(() => "");
+    return {
+      phase: "download",
+      status: "fail",
+      durationMs: Date.now() - started,
+      error: `Legacy download failed: ${legacyRes.status} ${compactError(err)}`,
+    };
+  }
+
+  const contentType = legacyRes.headers.get("content-type") || "";
+  if (!contentType.includes("application/zip")) {
+    const bodyText = await legacyRes.text().catch(() => "");
+    return {
+      phase: "download",
+      status: "fail",
+      durationMs: Date.now() - started,
+      error: `Legacy returned non-zip response: ${compactError(contentType || bodyText)}`,
+    };
+  }
+
+  const buffer = await legacyRes.arrayBuffer();
+  const disposition = legacyRes.headers.get("content-disposition") || "";
+  const fileMatch = disposition.match(/filename="([^"]+)"/);
+
+  return {
+    phase: "download",
+    status: "pass",
+    durationMs: Date.now() - started,
+    data: { receivedBytes: buffer.byteLength, contentType },
+    downloadData: {
+      receivedBytes: buffer.byteLength,
+      contentType,
+      zipFile: fileMatch?.[1] || "unknown.zip",
+      downloadedCount: requestedFontCount,
+    },
+  };
+}
+
 async function runDownloadPhase(
   scrapeResult: any,
-  testCase: FoundryTestCase
+  testCase: FoundryTestCase,
+  transport: DownloadTransport
 ): Promise<PhaseResult & { downloadData?: any }> {
   const started = Date.now();
   const fonts = Array.isArray(scrapeResult.fonts) ? scrapeResult.fonts : [];
@@ -229,11 +470,11 @@ async function runDownloadPhase(
   const familyHint = fonts[0]?.metadata?.family || fonts[0]?.family || testCase.id;
   const targetUrl = scrapeResult.targetUrl || scrapeResult.originalUrl || testCase.url;
 
-  const payload =
+  const payload: Record<string, unknown> =
     directFonts.length > 0 && !hasPlaceholder
       ? {
           mode: "batch-direct",
-          source: new URL(targetUrl).host,
+          source: (() => { try { return new URL(targetUrl).host; } catch { return "unknown"; } })(),
           fonts: directFonts,
           outputFolder: `e2e-prod-${testCase.id}`,
           metadata: {
@@ -248,7 +489,7 @@ async function runDownloadPhase(
           mode: "browser-intercept",
           targetUrl,
           outputFolder: `e2e-prod-${testCase.id}`,
-          stream: true,
+          stream: transport === "jobs",
           expectedCount: scrapeResult.expectedCount,
           injectScript: scrapeResult.injectScript,
           metadata: {
@@ -259,111 +500,87 @@ async function runDownloadPhase(
           },
         };
 
+  const requestedFontCount = directFonts.length > 0 ? directFonts.length : fonts.length;
+
   try {
-    const response = await fetchWithTimeout(
-      DOWNLOAD_ENDPOINT,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      },
-      600_000 // 10 minute timeout for downloads
-    );
-
-    const contentType = response.headers.get("content-type") || "";
-
-    if (contentType.includes("application/zip")) {
-      const buffer = await response.arrayBuffer();
-      const disposition = response.headers.get("content-disposition") || "";
-      const fileMatch = disposition.match(/filename="([^"]+)"/);
-      const resultHeader = response.headers.get("x-download-result");
-      let downloadedCount: number | undefined;
-      try {
-        const parsed = JSON.parse(resultHeader || "{}");
-        downloadedCount = parsed.downloadedCount;
-      } catch {}
-
-      return {
-        phase: "download",
-        status: "pass",
-        durationMs: Date.now() - started,
-        data: { receivedBytes: buffer.byteLength, contentType },
-        downloadData: {
-          receivedBytes: buffer.byteLength,
-          contentType,
-          zipFile: fileMatch?.[1],
-          downloadedCount,
-        },
-      };
+    if (transport === "jobs") {
+      return await runJobsTransportDownload(payload, started);
     }
 
-    if (contentType.includes("ndjson")) {
-      const text = await response.text();
-      const lines = text.split("\n").filter(Boolean);
-      let finalResult: any;
-      let zipSize = 0;
-      let zipFile: string | undefined;
+    if (payload.mode === "batch-direct" && directFonts.length > LEGACY_DIRECT_CHUNK_SIZE) {
+      let activeChunkSize = Math.min(LEGACY_DIRECT_CHUNK_SIZE, directFonts.length);
 
-      for (const line of lines) {
-        try {
-          const event = JSON.parse(line);
-          if (event.type === "result") {
-            finalResult = event.result;
-            zipSize = event.zipBase64 ? Math.round((event.zipBase64.length * 3) / 4) : 0;
-            zipFile = event.zipFile;
-          }
-          if (event.type === "error") {
-            return {
-              phase: "download",
-              status: "fail",
-              durationMs: Date.now() - started,
-              error: event.error,
-            };
-          }
-        } catch {}
-      }
+      while (true) {
+        const directChunks: any[][] = [];
+        for (let i = 0; i < directFonts.length; i += activeChunkSize) {
+          directChunks.push(directFonts.slice(i, i + activeChunkSize));
+        }
 
-      if (finalResult) {
+        let totalBytes = 0;
+        let downloadedCount = 0;
+        let lastZipName = "unknown.zip";
+        let shouldRetrySmallerChunks = false;
+
+        for (let index = 0; index < directChunks.length; index++) {
+          const chunkFonts = directChunks[index];
+          const chunkPayload: Record<string, unknown> = {
+            ...payload,
+            fonts: chunkFonts,
+            outputFolder: `e2e-prod-${testCase.id}-chunk-${index + 1}`,
+            metadata: {
+              ...(payload.metadata as Record<string, unknown>),
+              chunkIndex: index + 1,
+              chunkTotal: directChunks.length,
+              chunkSize: activeChunkSize,
+            },
+          };
+
+          const chunkResult = await runLegacyTransportDownload(chunkPayload, chunkFonts.length, started);
+          if (chunkResult.status !== "pass") {
+            const isCloudflareTimeout = (chunkResult.error || "").includes(" 524 ");
+            if (isCloudflareTimeout && activeChunkSize > 1) {
+              activeChunkSize = Math.max(1, Math.floor(activeChunkSize / 2));
+              shouldRetrySmallerChunks = true;
+              break;
+            }
+            return chunkResult;
+          }
+
+          totalBytes += chunkResult.downloadData?.receivedBytes || 0;
+          downloadedCount += chunkResult.downloadData?.downloadedCount || 0;
+          lastZipName = chunkResult.downloadData?.zipFile || lastZipName;
+        }
+
+        if (shouldRetrySmallerChunks) continue;
+
         return {
           phase: "download",
           status: "pass",
           durationMs: Date.now() - started,
+          data: { receivedBytes: totalBytes, contentType: "application/zip" },
           downloadData: {
-            receivedBytes: zipSize,
-            contentType,
-            zipFile,
-            downloadedCount: finalResult.downloaded?.length,
+            receivedBytes: totalBytes,
+            contentType: "application/zip",
+            zipFile: lastZipName,
+            downloadedCount,
           },
         };
       }
-
-      return {
-        phase: "download",
-        status: "fail",
-        durationMs: Date.now() - started,
-        error: "Stream completed without result event.",
-      };
     }
 
-    const errorBody = await response.text().catch(() => "");
-    return {
-      phase: "download",
-      status: "fail",
-      durationMs: Date.now() - started,
-      error: `HTTP ${response.status}: ${errorBody.slice(0, 300)}`,
-    };
+    return await runLegacyTransportDownload(payload, requestedFontCount, started);
   } catch (error: any) {
     const isTimeout = error?.name === "AbortError";
     return {
       phase: "download",
       status: isTimeout ? "timeout" : "fail",
       durationMs: Date.now() - started,
-      error: error.message,
+      error: compactError(error?.message || "Unknown download failure."),
     };
   }
 }
 
-async function runTestCase(testCase: FoundryTestCase): Promise<TestResult> {
+async function runTestCase(testCase: FoundryTestCase, transport: DownloadTransport): Promise<TestResult> {
   const started = Date.now();
   const phases: PhaseResult[] = [];
   const reasons: string[] = [];
@@ -394,7 +611,7 @@ async function runTestCase(testCase: FoundryTestCase): Promise<TestResult> {
   }
 
   // Phase 2: Download
-  const downloadPhase = await runDownloadPhase(analyzePhase.body, testCase);
+  const downloadPhase = await runDownloadPhase(analyzePhase.body, testCase, transport);
   phases.push({
     phase: downloadPhase.phase,
     status: downloadPhase.status,
@@ -435,6 +652,7 @@ async function main() {
   const { resume, rerunFailed, only, limit, offset } = parseArgs();
   const reportsDir = path.join("tasks", "reports");
   await mkdir(reportsDir, { recursive: true });
+  const transport = await resolveDownloadTransport();
 
   let cases = FOUNDRY_CASES;
   if (only) cases = cases.filter((c) => c.id === only || c.id.includes(only));
@@ -460,13 +678,29 @@ async function main() {
 
   console.log(`\n=== Production E2E Smoke Test ===`);
   console.log(`Target: ${PRODUCTION_BASE}`);
+  console.log(`Transport: ${transport}`);
+  console.log(`Checkpoint: ${CHECKPOINT_FILE}`);
   console.log(`Cases: ${cases.length} total, ${pending.length} pending\n`);
 
   for (let i = 0; i < pending.length; i++) {
     const tc = pending[i];
     console.log(`[${i + 1}/${pending.length}] ${tc.name} -> ${tc.url}`);
 
-    const result = await runTestCase(tc);
+    let result: TestResult;
+    try {
+      result = await runTestCase(tc, transport);
+    } catch (fatalError: any) {
+      console.error(`  [CRASH] Unhandled exception in ${tc.name}: ${fatalError.message}`);
+      result = {
+        id: tc.id,
+        name: tc.name,
+        url: tc.url,
+        status: "fail",
+        phases: [],
+        reasons: [`Fatal crash: ${fatalError.message}`],
+        durationMs: 0,
+      };
+    }
     resultById.set(result.id, result);
 
     const tag = result.status === "pass" ? "PASS" : "FAIL";

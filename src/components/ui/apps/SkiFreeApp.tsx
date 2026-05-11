@@ -29,7 +29,7 @@ export default function SkiFreeApp({ isVisible, onFocus }: SovereignRuntimeProps
           display: "block",
           visibility: isLoading ? "hidden" : "visible",
         }}
-        sandbox="allow-scripts allow-same-origin"
+        allow="autoplay"
       />
     </div>
   );
