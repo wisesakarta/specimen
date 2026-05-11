@@ -272,7 +272,7 @@ async function runJobsTransportDownload(payload: Record<string, unknown>, starte
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),
     },
-    30_000
+    60_000
   );
 
   if (!dispatchRes.ok) {
@@ -456,7 +456,8 @@ async function runDownloadPhase(
   const started = Date.now();
   const fonts = Array.isArray(scrapeResult.fonts) ? scrapeResult.fonts : [];
   const hasPlaceholder = fonts.some((f: any) => isInterceptPlaceholder(f?.url));
-  const directFonts = fonts.filter((f: any) => isDirectUrl(f?.url));
+  // Cap at 50 to prevent oversized job payloads (e.g. catalog-mode foundries return 200+ fonts).
+  const directFonts = fonts.filter((f: any) => isDirectUrl(f?.url)).slice(0, 50);
 
   if (directFonts.length === 0 && !hasPlaceholder) {
     return {

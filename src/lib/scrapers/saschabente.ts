@@ -1,6 +1,6 @@
 import { Scraper, ScrapeResult } from "./scraper-protocol";
 
-const SASCHA_BENTE_HOST = "saschabente.com";
+const SASCHA_BENTE_HOSTS = ["saschabente.com", "saschabente.de"];
 const FOUNDRY_NAME = "Sascha Bente";
 
 const UA =
@@ -110,10 +110,11 @@ export const SaschaBenteScraper: Scraper = {
   name: "Sascha Bente (Fontdue)",
 
   canHandle(url: string): boolean {
-    return url.includes(SASCHA_BENTE_HOST);
+    return SASCHA_BENTE_HOSTS.some((host) => url.includes(host));
   },
 
   async scrape(url: string): Promise<ScrapeResult> {
+    try {
     // Step 1: fetch the specimen page
     const pageRes = await fetch(url, {
       headers: {
@@ -214,5 +215,30 @@ export const SaschaBenteScraper: Scraper = {
         collectedAt: new Date().toISOString()
       }
     };
+    } catch (error) {
+      console.error("[SaschaBenteScraper] Error:", error);
+      return {
+        scraperName: this.name,
+        foundryName: FOUNDRY_NAME,
+        fonts: [
+          {
+            url: "browser-intercept",
+            family: "Sascha Bente",
+            format: "woff2",
+            style: "Normal",
+            weight: "Regular",
+            downloadable: true,
+            metadata: {
+              foundry: FOUNDRY_NAME,
+              pageUrl: url,
+              targetUrl: url,
+              reason: error instanceof Error ? error.message : String(error)
+            }
+          }
+        ],
+        originalUrl: url,
+        targetUrl: url
+      };
+    }
   }
 };
