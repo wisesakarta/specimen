@@ -9,12 +9,12 @@ import type { VFSNode } from "@/lib/os-config";
 import { cn } from "@/lib/style-composer";
 
 const SPECIMEN_MSDOS_BANNER = [
-  "Specimen(R) Windows 95",
-  "(C) Copyright Technical Standard 1995-2026.",
+  "Specimen 95 [Version 2.1.0]",
+  "(C) Technical Standard. All rights reserved.",
 ].join("\r\n");
 
 const SPECIMEN_MSDOS_BANNER_DEV =
-  `${SPECIMEN_MSDOS_BANNER}\r\n[Development build ${process.env.NEXT_PUBLIC_APP_BUILD || "unknown"}]`;
+  `${SPECIMEN_MSDOS_BANNER}\r\n[Dev build ${process.env.NEXT_PUBLIC_APP_BUILD || "local"}]`;
 
 const SYSTEM_IDENTIFICATION_STRING =
   process.env.NEXT_PUBLIC_APP_ENV === "production"
@@ -442,7 +442,7 @@ export default function TerminalApp({
         cursor: "#C0C0C0",
         selectionBackground: "rgba(192, 192, 192, 0.3)",
       },
-      fontFamily: "W95FA, 'MS Sans Serif', Tahoma, monospace",
+      fontFamily: "'Departure Mono', monospace",
       fontSize: 14,
       lineHeight: 1.2,
       scrollback: 1000,

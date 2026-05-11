@@ -3,7 +3,7 @@
  * Defines the Virtual File System (VFS) and App Registry.
  */
 
-export type AppType = "SPECIMEN" | "EXPLORER" | "NOTEPAD" | "BROWSER" | "WEBAMP" | "MONACO_EDITOR" | "JSPAINT" | "ABOUT" | "TERMINAL";
+export type AppType = "SPECIMEN" | "EXPLORER" | "NOTEPAD" | "BROWSER" | "WEBAMP" | "MONACO_EDITOR" | "JSPAINT" | "ABOUT" | "TERMINAL" | "DOOM" | "SKIFREE";
 
 /**
  * PHASE 8 — WINDOWSTATE TYPE HARDENING
@@ -116,6 +116,8 @@ export const SOVEREIGN_REGISTRY: Partial<Record<AppType, SovereignRegistryEntry>
   NOTEPAD: { defaultWidth: 400, defaultHeight: 300, spatial: "vessel", defaultIcon: "📝" },
   TERMINAL: { defaultWidth: 600, defaultHeight: 400, spatial: "vessel", defaultIcon: "⌨️" },
   BROWSER: { defaultWidth: 800, defaultHeight: 600, spatial: "vessel", defaultIcon: "🌐" },
+  DOOM: { defaultWidth: 640, defaultHeight: 480, spatial: "vessel", defaultIcon: "🎮" },
+  SKIFREE: { defaultWidth: 500, defaultHeight: 400, spatial: "vessel", defaultIcon: "⛷️" },
 };
 
 

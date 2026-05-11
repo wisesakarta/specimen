@@ -15,6 +15,8 @@ const MonacoEditorApp = dynamic(() => import("@/components/ui/apps/MonacoEditor"
 const JSPaintApp = dynamic(() => import("@/components/ui/apps/JSPaintApp"), { ssr: false });
 const NotepadApp = dynamic(() => import("@/components/ui/apps/Notepad"), { ssr: false });
 const TerminalApp = dynamic(() => import("@/components/ui/apps/Terminal"), { ssr: false });
+const DoomApp = dynamic(() => import("@/components/ui/apps/DoomApp"), { ssr: false });
+const SkiFreeApp = dynamic(() => import("@/components/ui/apps/SkiFreeApp"), { ssr: false });
 
 /**
  * The standard shell-to-runtime contract for Sovereign citizens.
@@ -160,6 +162,32 @@ export function DispatchSovereignCitizen({
           onFocus={onFocus}
           onPositionChange={onPositionChange}
           onActivityChange={onActivityChange} 
+        />
+      );
+
+    case "DOOM":
+      return (
+        <DoomApp
+          isVisible={isVisible}
+          onClose={onClose}
+          onMinimize={onMinimize}
+          onMaximize={onMaximize}
+          onFocus={onFocus}
+          onPositionChange={onPositionChange}
+          onActivityChange={onActivityChange}
+        />
+      );
+
+    case "SKIFREE":
+      return (
+        <SkiFreeApp
+          isVisible={isVisible}
+          onClose={onClose}
+          onMinimize={onMinimize}
+          onMaximize={onMaximize}
+          onFocus={onFocus}
+          onPositionChange={onPositionChange}
+          onActivityChange={onActivityChange}
         />
       );
 

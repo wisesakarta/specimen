@@ -1,0 +1,23 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>DOOM</title>
+  <style>
+    html, body { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; background: #000; }
+    #dos { width: 100%; height: 100%; }
+    .jsdos-player-container { width: 100% !important; height: 100% !important; }
+  </style>
+  <link rel="stylesheet" href="https://v8.js-dos.com/latest/js-dos.css">
+  <script src="https://v8.js-dos.com/latest/js-dos.js"></script>
+</head>
+<body>
+  <div id="dos"></div>
+  <script>
+    emulators.pathPrefix = "https://v8.js-dos.com/latest/";
+    Dos(document.getElementById("dos"), {
+      url: "https://cdn.dos.zone/original/2X/2/2b27c0e15b7e14092e3cf5124ba78e3ab0453328.jsdos",
+    });
+  </script>
+</body>
+</html>

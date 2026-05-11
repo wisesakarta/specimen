@@ -18,6 +18,21 @@
   font-display: block;
 }
 
+/* ─────────────────────────────────────────────
+   MONOSPACE TYPEFACE: Departure Mono
+   Source: https://github.com/rektdeckard/departure-mono
+   Used exclusively for Terminal/MS-DOS Prompt and code contexts
+   where monospace character grid alignment is required.
+   ───────────────────────────────────────────── */
+
+@font-face {
+  font-family: 'Departure Mono';
+  src: url('/fonts/DepartureMono-Regular.woff2') format('woff2');
+  font-weight: 400;
+  font-style: normal;
+  font-display: block;
+}
+
 
 :root {
   /* Canonical system typeface — Win95 MS Sans Serif equivalent. */
@@ -32,7 +47,7 @@
   /* System font aliases — retained for legacy call sites; all resolve
      to W95FA so there is exactly one typeface in the runtime. */
   --font-sans:      var(--font-win95-chrome);
-  --font-mono:      var(--font-win95-chrome);
+  --font-mono:      'Departure Mono', monospace;
   --font-inter:     var(--font-win95-chrome);
   --font-brand:     var(--font-win95-chrome);
   --font-catalogue: var(--font-win95-chrome);

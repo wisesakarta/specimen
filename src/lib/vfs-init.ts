@@ -179,17 +179,21 @@ export const DEFAULT_VFS: VFSNode[] = [
     type: "file",
     icon: "📄",
     appType: "NOTEPAD",
-    content: `Specimen Runtime Environment [v${process.env.NEXT_PUBLIC_APP_VERSION || "0.1.5"}]
-${process.env.NEXT_PUBLIC_APP_ENV === "development" ? `Build: ${process.env.NEXT_PUBLIC_APP_BUILD || "2026.05.09"}\nEnvironment: development\n` : ""}
-High-fidelity font asset retrieval and technical auditing system.
+    content: `Specimen 95
 
-This environment is maintained by the Technical Standard department of Specimen Labs. 
-It operates as a sovereign runtime for deterministic asset extraction and structural validation.
+A sovereign operating system running inside the browser.
+Built by Technical Standard.
 
-Credentials:
-- Department: Technical Standard
-- Organization: Specimen Labs
-- Founder: Karta Wisesa`,
+This is not a retro-themed website. This is a runtime environment
+that restores operational coherence to software design.
+
+Every window, every bevel, every interaction is authored with intent.
+
+Version ${process.env.NEXT_PUBLIC_APP_VERSION || "2.1.0"}
+${process.env.NEXT_PUBLIC_APP_ENV === "development" ? `Build: ${process.env.NEXT_PUBLIC_APP_BUILD || "local"}\n` : ""}
+---
+Technical Standard
+specimen.krtalabs.xyz`,
   },
   {
     id: "desktop-foundries",
@@ -197,54 +201,16 @@ Credentials:
     type: "file",
     icon: "📄",
     appType: "NOTEPAD",
-    content: `Integrated Foundries Inventory:
-- 205TF
-- A2-Type
-- ABC Dinamo
-- Abjad Fonts
-- Arilla Type
-- Blaze Type
-- Branding with Type
-- Commercial Type
-- Co-Type
-- Dein Waller
-- Displaay
-- Due Studio
-- Faire Type
-- Formula Type
-- General Type Studio
-- Grilli Type
-- Groteskly
-- Hanli
-- Interval Type
-- July Type
-- KH Type
-- Klim
-- Lineto
-- Mass-Driver
-- MonoLisa
-- Narrow Type
-- Nodo Type
-- Nuform Type
-- OH no Type Co
-- Optimo
-- Pangram Pangram
-- Production Type
-- René Bieder
-- Sascha Bente
-- Sharp Type
-- Source Type
-- Superior Type
-- Swiss Typefaces
-- The Designers Foundry
-- Type Department
-- Typefaces Pizza
-- Typeji
-- Typejockeys
-- TypeType
-- Typotheque
-- Viktor Zumegen
-- W Type Foundry`,
+    content: `Specimen Analyzer
+
+Specimen includes a built-in font analysis engine capable of
+inspecting webfont delivery from type foundries worldwide.
+
+Use the Specimen app (Start > Programs > Specimen) to analyze
+any foundry URL and retrieve font metadata, glyph counts,
+OpenType features, and specimen PDFs.
+
+Supported platforms: Fontdue, Shopify, custom CDN, and more.`,
   },
   {
     id: "desktop-tech",
@@ -252,37 +218,39 @@ Credentials:
     type: "file",
     icon: "📄",
     appType: "NOTEPAD",
-    content: `Specimen Sovereign Tech Stack
-A documented assembly of libraries and engines powering the runtime.
+    content: `Specimen 95 — Acknowledgments
 
-Core Infrastructure:
-- Next.js 16 (App Router / Webpack)
-- TypeScript 5 (Static Typing)
-- Tailwind CSS 4 (Atomic Styling)
-- React 18 (Component Architecture)
+This operating system is made possible by open-source software.
+We honor the makers.
 
-Specialized Engines:
-- Sovereign UI: Custom React + Framer Motion 12
-- Terminal Instrument: xterm.js 6 + Fit Addon
-- Audio Processing: Webamp 2.2.0 (Winamp Emulation)
-- Visual Editor: Monaco Editor 4.7.0
-- Painting Utility: JSPaint (Legacy Port)
-- Motion Orchestration: GSAP 3.14.2 + Lenis 1.3.17
+Core:
+- Next.js 16 (Vercel)
+- React 18 (Meta)
+- TypeScript 5 (Microsoft)
+- Tailwind CSS 4 (Tailwind Labs)
 
-Data & Extraction Pipeline:
-- Font Analysis: opentype.js 1.3.4 + fontkit 2.0.4 + fonteditor-core 2.6.3
-- Browser Automation: Puppeteer 24.3 + Stealth Engine
-- DOM Parsing: Cheerio 1.2.0
-- Compression: adm-zip 0.5.16 + wawoff2 2.0.1 + brotli 1.3.3
-- Document Parsing: pdf-parse 2.4.5
+Citizens:
+- xterm.js 6 — Terminal emulation
+- Webamp 2.2.0 — Winamp in the browser (Jordan Eldredge)
+- Monaco Editor 4.7.0 — Code editing (Microsoft)
+- JS Paint — Classic Paint recreation (Isaiah Odhner)
+- Framer Motion 12 — Animation engine
 
-Identity & Assets:
-- Canonical Typeface: W95FA (Windows 95 MS Sans Serif Reissue, Sovereign UI)
-- Benchmark Standard: Berkeley Mono (Output Reference)
-- Iconography: Lucide React + React95 Icons
-- UI Design System: React95 Core 9.8.0
+Pipeline:
+- opentype.js, fontkit, fonteditor-core — Font analysis
+- Puppeteer 24 — Browser automation (Google)
+- Cheerio — DOM parsing
+- adm-zip, wawoff2, brotli — Compression
 
-To respect the makers: Special thanks to all contributors of the open-source libraries listed above.`,
+Typography:
+- W95FA — MS Sans Serif recreation (Alina Sava, SIL OFL)
+- Departure Mono — Monospace typeface (Tobias Fried)
+
+Icons:
+- React95 Icons (MIT)
+- trapd00r/win95-winxp_icons — shell32.dll extraction
+
+Thank you to every contributor who made their work free and open.`,
   },
   {
     id: "desktop-paint",

@@ -836,9 +836,15 @@ const toDisplayToken = (value: string | undefined): string | undefined => {
 };
 
 const makeJobFolder = (outputFolder?: string, metadata?: any): string => {
-  // If explicitly given, trust it
+  // If explicitly given, sanitize and validate containment
   if (outputFolder && outputFolder.trim() !== "") {
-    return path.join(baseDownloadRoot, toSafeOutputFolderPath(outputFolder));
+    const resolved = path.resolve(baseDownloadRoot, toSafeOutputFolderPath(outputFolder));
+    // Path traversal guard: ensure resolved path stays within download root
+    if (!resolved.startsWith(path.resolve(baseDownloadRoot))) {
+      console.warn(`[SECURITY] Path traversal attempt blocked: ${outputFolder}`);
+      return path.join(baseDownloadRoot, "quarantined-job");
+    }
+    return resolved;
   }
 
   const root = baseDownloadRoot;

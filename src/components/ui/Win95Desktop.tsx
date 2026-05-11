@@ -741,6 +741,14 @@ export default function Win95Desktop({
                   },
                   {
                     icon: "Folder_16x16_4.png",
+                    label: "Games",
+                    children: [
+                      { icon: "Folder_16x16_4.png", label: "DOOM",    onClick: () => handleOpenApp("DOOM", "DOOM") },
+                      { icon: "Folder_16x16_4.png", label: "SkiFree", onClick: () => handleOpenApp("SKIFREE", "SkiFree") },
+                    ],
+                  },
+                  {
+                    icon: "Folder_16x16_4.png",
                     label: "StartUp",
                     children: [],
                   },
@@ -765,7 +773,7 @@ export default function Win95Desktop({
                     ? []
                     : unique.slice(0, 15).map((r) => ({
                         icon: "FileText_16x16_4.png",
-                        label: r.title,
+                        label: r.title.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;"),
                         onClick: () => handleOpenApp(r.type, r.title, r.icon, r.data),
                       }));
                 })()}
@@ -1135,7 +1143,8 @@ function StartMenuItem({
         )}
       </button>
 
-      {/* Submenu — overlaps parent bevel by 3px for seamless material continuity */}
+      {/* Submenu — overlaps parent bevel by 3px for seamless material continuity.
+          maxWidth prevents overflow on small viewports. */}
       {hasSubmenu && showSubmenu && (
         <div
           className="absolute flex flex-col"
@@ -1143,7 +1152,8 @@ function StartMenuItem({
             left: "calc(100% - 3px)",
             top: -3,
             zIndex: 2002,
-            minWidth: 200,
+            minWidth: 180,
+            maxWidth: "min(220px, calc(100vw - 240px))",
             padding: 3,
             background: "var(--win-face)",
             boxShadow: "var(--bevel-raised)",
