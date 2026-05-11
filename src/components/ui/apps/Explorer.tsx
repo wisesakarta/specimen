@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo, useEffect, useCallback } from "react";
+import React, { useState, useMemo, useEffect, useCallback } from "react";
 import type { ReactNode } from "react";
 import { type VFSNode, type AppType, type WindowData } from "@/lib/os-config";
 import { Win95StatusBar, Win95StatusPanel } from "../Win95Window";
@@ -862,16 +862,30 @@ function IconTile({
         ) : (
           <span style={{ fontSize: 24 }}>□</span>
         )}
-        {selected && !renaming && (
+        {/* Win95 dither overlay — 2px checkerboard masked to icon silhouette */}
+        {selected && !renaming && iconSrc32 && (
           <div
             aria-hidden
             style={{
               position: "absolute",
               inset: 0,
-              background: "var(--win-select-bg)",
-              opacity: 0.45,
-              mixBlendMode: "multiply",
-            }}
+              pointerEvents: "none",
+              backgroundColor: "transparent",
+              backgroundImage: [
+                "linear-gradient(45deg, #000080 25%, transparent 25%, transparent 75%, #000080 75%, #000080)",
+                "linear-gradient(45deg, #000080 25%, transparent 25%, transparent 75%, #000080 75%, #000080)",
+              ].join(", "),
+              backgroundSize: "2px 2px",
+              backgroundPosition: "0 0, 1px 1px",
+              maskImage: `url(${iconSrc32})`,
+              maskSize: "32px 32px",
+              maskPosition: "center",
+              maskRepeat: "no-repeat",
+              WebkitMaskImage: `url(${iconSrc32})`,
+              WebkitMaskSize: "32px 32px",
+              WebkitMaskPosition: "center",
+              WebkitMaskRepeat: "no-repeat",
+            } as React.CSSProperties}
           />
         )}
       </div>
