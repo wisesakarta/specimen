@@ -1,11 +1,10 @@
-
-import { exec } from "node:child_process";
+import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { Buffer } from "node:buffer";
 
-const execAsync = promisify(exec);
+const execFileAsync = promisify(execFile);
 
 export interface MasterForgeOptions {
   family: string;
@@ -36,15 +35,23 @@ export class MasterRestorationService {
       const outputPath = path.join(tempDir, `${options.psName}.otf`);
       const metaPath = `${outputPath}.json`;
       
-      // Execute the Master Forge (Python)
-      let cmd = `python tools/master_forge.py --fragments ${fragmentPaths.join(" ")} --output "${outputPath}" --family "${options.family}" --subfamily "${options.subfamily}" --psname "${options.psName}" --autoname`;
-      
+      // Execute the Master Forge (Python) — using execFile with argument array
+      // to prevent command injection via user-controlled metadata values.
+      const args = [
+        "tools/master_forge.py",
+        "--fragments", ...fragmentPaths,
+        "--output", outputPath,
+        "--family", options.family,
+        "--subfamily", options.subfamily,
+        "--psname", options.psName,
+        "--autoname",
+      ];
       if (options.skeletonPath) {
-        cmd += ` --skeleton "${options.skeletonPath}"`;
+        args.push("--skeleton", options.skeletonPath);
       }
       
-      console.log(`[MASTER-RESTORE] Executing Forge: ${cmd}`);
-      await execAsync(cmd);
+      console.log(`[MASTER-RESTORE] Executing Forge: python ${args.join(" ")}`);
+      await execFileAsync("python", args);
 
       // Check if output exists
       if (await fs.stat(outputPath).catch(() => null)) {
