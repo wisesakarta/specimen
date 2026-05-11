@@ -67,6 +67,13 @@
     inset 0 0 0 1px var(--win-dk-shadow),
     0 0 0 1px var(--win-highlight);
 
+  /* Deeply sunken inset variant — outer ring uses face not face-light */
+  --bevel-inside:
+    inset 1px 1px 0 var(--win-shadow),
+    inset -1px -1px 0 var(--win-highlight),
+    inset 2px 2px 0 var(--win-dk-shadow),
+    inset -2px -2px 0 var(--win-face);
+
   /* Sizing */
   --win-taskbar-height:     28px;
   --win-titlebar-height:    22px;
@@ -299,10 +306,15 @@
     background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='2' height='2'%3E%3Crect width='1' height='1' fill='white' /%3E%3Crect x='1' y='1' width='1' height='1' fill='white' /%3E%3Crect x='1' y='0' width='1' height='1' fill='%23c0c0c0' /%3E%3Crect x='0' y='1' width='1' height='1' fill='%23c0c0c0' /%3E%3C/svg%3E");
   }
   
-  ::-webkit-scrollbar-thumb { 
-    background: var(--win-face); 
-    box-shadow: var(--bevel-raised); 
+  ::-webkit-scrollbar-thumb {
+    background: var(--win-face);
+    box-shadow: var(--bevel-raised);
+    min-height: 20px;
+    min-width: 20px;
   }
+
+  /* Firefox fallback */
+  * { scrollbar-color: var(--win-face) var(--win-face); scrollbar-width: auto; }
 
   ::-webkit-scrollbar-button:single-button {
     background-color: var(--win-face);
@@ -318,20 +330,20 @@
     box-shadow: var(--bevel-pressed);
   }
 
-  /* Vertical Arrows */
+  /* Vertical Arrows — pixel-art rects, shape-rendering crispEdges */
   ::-webkit-scrollbar-button:vertical:single-button:decrement {
-    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16'%3E%3Cpath d='M8 6l-3 3h6z' fill='black'/%3E%3C/svg%3E");
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16'%3E%3Crect x='7' y='5' width='1' height='1' fill='black' shape-rendering='crispEdges'/%3E%3Crect x='6' y='6' width='3' height='1' fill='black' shape-rendering='crispEdges'/%3E%3Crect x='5' y='7' width='5' height='1' fill='black' shape-rendering='crispEdges'/%3E%3Crect x='4' y='8' width='7' height='1' fill='black' shape-rendering='crispEdges'/%3E%3C/svg%3E");
   }
   ::-webkit-scrollbar-button:vertical:single-button:increment {
-    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16'%3E%3Cpath d='M8 10l-3-3h6z' fill='black'/%3E%3C/svg%3E");
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16'%3E%3Crect x='4' y='7' width='7' height='1' fill='black' shape-rendering='crispEdges'/%3E%3Crect x='5' y='8' width='5' height='1' fill='black' shape-rendering='crispEdges'/%3E%3Crect x='6' y='9' width='3' height='1' fill='black' shape-rendering='crispEdges'/%3E%3Crect x='7' y='10' width='1' height='1' fill='black' shape-rendering='crispEdges'/%3E%3C/svg%3E");
   }
 
-  /* Horizontal Arrows */
+  /* Horizontal Arrows — pixel-art rects, shape-rendering crispEdges */
   ::-webkit-scrollbar-button:horizontal:single-button:decrement {
-    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16'%3E%3Cpath d='M6 8l3-3v6z' fill='black'/%3E%3C/svg%3E");
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16'%3E%3Crect x='8' y='4' width='1' height='7' fill='black' shape-rendering='crispEdges'/%3E%3Crect x='7' y='5' width='1' height='5' fill='black' shape-rendering='crispEdges'/%3E%3Crect x='6' y='6' width='1' height='3' fill='black' shape-rendering='crispEdges'/%3E%3Crect x='5' y='7' width='1' height='1' fill='black' shape-rendering='crispEdges'/%3E%3C/svg%3E");
   }
   ::-webkit-scrollbar-button:horizontal:single-button:increment {
-    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16'%3E%3Cpath d='M10 8l-3-3v6z' fill='black'/%3E%3C/svg%3E");
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16'%3E%3Crect x='7' y='4' width='1' height='7' fill='black' shape-rendering='crispEdges'/%3E%3Crect x='8' y='5' width='1' height='5' fill='black' shape-rendering='crispEdges'/%3E%3Crect x='9' y='6' width='1' height='3' fill='black' shape-rendering='crispEdges'/%3E%3Crect x='10' y='7' width='1' height='1' fill='black' shape-rendering='crispEdges'/%3E%3C/svg%3E");
   }
 
   ::-webkit-scrollbar-corner { background: var(--win-face); }

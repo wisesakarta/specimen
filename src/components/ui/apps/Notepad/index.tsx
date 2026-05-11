@@ -296,7 +296,7 @@ export default function Notepad({
       {/* Editor Area */}
       <textarea
         ref={textareaRef}
-        className="flex-1 w-full p-1 outline-none resize-none border-0 cursor-text scrollbar-win95"
+        className="flex-1 w-full p-1 outline-none resize-none border-0 cursor-text"
         style={{
           backgroundColor: "var(--win-window)",
           color: "var(--win-text)",
