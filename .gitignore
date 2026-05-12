@@ -48,10 +48,14 @@ storybook-static
 docs/
 prd.json
 prd-*.json
+DEPLOYMENT.md
 ARCHITECTURAL_AUDIT.md
 REFACTOR_ROADMAP.md
 STRATEGIC_ANALYSIS.md
 TECHNICAL_BLUEPRINT_ABCDINAMO.md
+
+# Vendored subproject internal metadata (not part of this repo's GitHub presence)
+public/jspaint/.github/
 
 # Experimental & Non-Essential Tasks
 tasks/recon-*
