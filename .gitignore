@@ -46,6 +46,8 @@ storybook-static
 
 # Internal Documentation & Strategy
 docs/
+prd.json
+prd-*.json
 ARCHITECTURAL_AUDIT.md
 REFACTOR_ROADMAP.md
 STRATEGIC_ANALYSIS.md
