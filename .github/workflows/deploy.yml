@@ -57,7 +57,9 @@ jobs:
 
     steps:
       - name: Pull latest source
-        run: git -C /home/wisesa/10Projects/active/specimen pull origin main
+        run: |
+          git -C /home/wisesa/10Projects/active/specimen fetch origin
+          git -C /home/wisesa/10Projects/active/specimen reset --hard origin/main
 
       - name: Pull new image
         run: docker pull ghcr.io/wisesakarta/specimen:latest
